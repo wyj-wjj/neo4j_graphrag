@@ -1,0 +1,17 @@
+version: '3.8'
+
+# 使用示例：
+#   export REDIS_PASSWORD=your_strong_password
+#   docker compose -f docker-compose-redis.example.yml up -d
+# 注意：真实密码请通过环境变量注入，不要写死在此文件中。
+
+services:
+  redis:
+    image: redis:7.0
+    container_name: redis_agent
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass "${REDIS_PASSWORD}"
+    volumes:
+      - ./redis_data:/data
+    restart: unless-stopped

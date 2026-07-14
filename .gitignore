@@ -1,0 +1,28 @@
+# ===== Secrets / 敏感配置 =====
+.env
+.env.*
+!.env.example
+
+# 含真实 Redis 密码的本地 compose，仓库使用 docker-compose-redis.example.yml
+docker-compose-redis.yml
+
+# 密钥截图等敏感图片
+docs/images/langfuse密钥截图.png
+
+# ===== 本地 IDE / 工具目录 =====
+.trae/
+.vscode/
+.venv/
+
+# ===== 本地数据库会话产物 =====
+local_mysql.session.sql
+
+# ===== Redis 数据卷 =====
+redis_data/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
