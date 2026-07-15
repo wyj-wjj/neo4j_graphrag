@@ -53,6 +53,8 @@
   Playwright 成功收集 1 条端到端测试，完整浏览器执行交由 CI 重验。
 - GitHub CI 第二轮确认 backend、secrets 持续通过；剩余问题定位为 E2E 默认总超时、Milvus
   Standalone 配套配置偏差，以及旧 Trivy Action 内置二进制安装失败。修复保持测试断言和安全门槛不变。
+- GitHub CI 第三轮确认 backend、images、secrets 通过，两次 Trivy 镜像扫描均通过。发送按钮补充
+  稳定可访问名称和组件回归测试；真实依赖启动失败时增加 Milvus/etcd/MinIO 容器日志诊断。
 
 ## 环境阻塞与补跑入口
 

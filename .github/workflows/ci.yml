@@ -60,7 +60,13 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with: {version: "0.9.25", enable-cache: true}
       - run: uv sync --frozen --group dev
-      - run: docker compose --profile mysql up -d --wait mysql redis neo4j milvus
+      - name: Start real dependencies
+        run: |
+          if ! docker compose --profile mysql up -d --wait mysql redis neo4j milvus; then
+            docker compose --profile mysql ps --all
+            docker compose --profile mysql logs --no-color --tail=200 milvus etcd minio
+            exit 1
+          fi
       - run: DATABASE_URL="$TEST_DATABASE_URL" uv run alembic upgrade head
       - run: uv run pytest -q tests/integration/test_real_adapters.py
       - if: always()

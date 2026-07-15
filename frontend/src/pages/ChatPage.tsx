@@ -50,7 +50,7 @@ export default function ChatPage() {
       {citations.map((item) => <Card size="small" key={item.citation_id} className="citation"><b>[{item.citation_id}]</b> {item.document_title} · v{item.document_version} · {item.source_location}</Card>)}
       <label htmlFor="question" className="field-label">你的问题</label>
       <Input.TextArea id="question" value={query} onChange={(event) => setQuery(event.target.value)} maxLength={4000} autoSize={{minRows: 3, maxRows: 8}} onPressEnter={(event) => {if (!event.shiftKey) {event.preventDefault(); void send()}}} />
-      <Space className="actions"><Button type="primary" onClick={() => void send()} disabled={!query.trim() || isStreaming}>发送</Button><Button onClick={cancel} disabled={!isStreaming}>取消</Button></Space>
+      <Space className="actions"><Button aria-label="发送" type="primary" onClick={() => void send()} disabled={!query.trim() || isStreaming}>发送</Button><Button onClick={cancel} disabled={!isStreaming}>取消</Button></Space>
     </section>
   )
 }
