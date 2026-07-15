@@ -107,7 +107,8 @@ Rerank 后采用绝对阈值 `0.08` 与相对最佳分数 `0.80` 的较严格者
 父 Chunk 也重新授权后才可扩展上下文。证据保留 Chunk、文档、版本、更新时间和来源位置。
 无可靠证据返回标准拒答；有证据回答追加稳定 `[C1]` 引用。文档正文被视为数据，不能覆盖系统权限与 Tool 规则。
 
-Embedding 维度和版本由 Milvus Schema 与写入双重检查；不兼容 Collection 会拒绝复用。
+Embedding 维度和版本由 Milvus Schema 与写入双重检查；不兼容 Collection 会拒绝复用。在线向量检索与
+补偿核对使用 Strong consistency，保证写入确认并在 MySQL 激活后立即可见。
 Neo4j 查询始终带 `tenant_id`，跳数硬限制为 1–2。
 
 ## 8. Agent 与 Tool

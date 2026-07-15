@@ -15,7 +15,11 @@ createRoot(document.getElementById('root')!).render(
     <ConfigProvider
       theme={{
         algorithm: theme.defaultAlgorithm,
-        token: {colorPrimary: '#2563eb', colorTextPlaceholder: '#595959'},
+        token: {
+          colorPrimary: '#2563eb',
+          colorSuccessText: '#135200',
+          colorTextPlaceholder: '#595959',
+        },
       }}
     >
       <AntApp>

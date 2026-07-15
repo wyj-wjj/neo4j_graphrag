@@ -57,6 +57,8 @@ class FakeMilvusClient:
         self.exists = False
         self.schema = FakeSchema()
         self.upserts: list[dict[str, Any]] = []
+        self.last_search_kwargs: dict[str, Any] = {}
+        self.last_query_kwargs: dict[str, Any] = {}
         self.closed = False
 
     def has_collection(self, _name: str) -> bool:
@@ -78,13 +80,15 @@ class FakeMilvusClient:
         assert collection_name == "chunks-v1"
         self.upserts.extend(data)
 
-    def search(self, **_kwargs: Any) -> list[list[dict[str, Any]]]:
+    def search(self, **kwargs: Any) -> list[list[dict[str, Any]]]:
+        self.last_search_kwargs = kwargs
         return [[{"entity": {"chunk_id": "chunk-1"}, "distance": 0.9}]]
 
     def delete(self, **_kwargs: Any) -> None:
         return None
 
-    def query(self, **_kwargs: Any) -> list[dict[str, str]]:
+    def query(self, **kwargs: Any) -> list[dict[str, str]]:
+        self.last_query_kwargs = kwargs
         return [{"chunk_id": "chunk-1"}]
 
     def close(self) -> None:
@@ -111,6 +115,8 @@ async def test_milvus_schema_crud_and_dimension_guard() -> None:
     result = await store.search("default", (1.0, 0.0, 0.0, 0.0), top_k=2)
     assert result[0].chunk_id == "chunk-1"
     assert await store.list_ids("default") == {"chunk-1"}
+    assert client.last_search_kwargs["consistency_level"] == "Strong"
+    assert client.last_query_kwargs["consistency_level"] == "Strong"
     await store.delete("default", ["chunk-1"])
     await store.delete("default", [])
     await store.close()

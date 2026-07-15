@@ -107,6 +107,7 @@ class MilvusVectorStore:
             filter=filter_expression,
             output_fields=["chunk_id"],
             search_params={"metric_type": "COSINE", "params": {"ef": max(64, top_k)}},
+            consistency_level="Strong",
         )
         return [
             SearchCandidate(
@@ -135,6 +136,7 @@ class MilvusVectorStore:
             filter=f"tenant_id == {json.dumps(tenant_id)}",
             output_fields=["chunk_id"],
             limit=16384,
+            consistency_level="Strong",
         )
         return {str(item["chunk_id"]) for item in rows}
 
