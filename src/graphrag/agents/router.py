@@ -1,19 +1,17 @@
-"""Rule-first deterministic supervisor with safe low-confidence behaviour."""
+"""Rule-first versioned Router Port with bounded compound planning."""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 
-from graphrag.domain.models import AgentIntent
-
-
-@dataclass(frozen=True, slots=True)
-class RouteDecision:
-    intent: AgentIntent
-    confidence: float
-    reason: str
-
+from graphrag.domain.models import (
+    AgentExecutionPlan,
+    AgentIntent,
+    AgentPlanStep,
+    RouteCandidate,
+    RouteDecision,
+)
 
 _RULES: tuple[tuple[AgentIntent, re.Pattern[str]], ...] = (
     (AgentIntent.ESCALATION, re.compile(r"人工|投诉|转接|自杀|自伤|威胁|报警", re.I)),
@@ -25,15 +23,71 @@ _RULES: tuple[tuple[AgentIntent, re.Pattern[str]], ...] = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class DeterministicRouter:
+    threshold: float = 0.75
+    max_experts: int = 2
+    version: str = "rule-router-v1"
+
+    def route(self, query: str) -> RouteDecision:
+        matched = self._matched(query)
+        candidates = tuple(
+            RouteCandidate(intent=intent, score=0.99, source="rule") for intent in matched
+        )
+        if len(matched) == 1:
+            return RouteDecision(
+                intent=matched[0],
+                confidence=0.99,
+                reason="rule",
+                candidates=candidates,
+            )
+        if len(matched) > 1:
+            high_risk = [
+                item for item in matched if item in {AgentIntent.REFUND, AgentIntent.ESCALATION}
+            ]
+            if len(high_risk) == 1:
+                return RouteDecision(
+                    intent=high_risk[0],
+                    confidence=0.9,
+                    reason="multi_intent_high_risk",
+                    candidates=candidates,
+                )
+            return RouteDecision(
+                intent=AgentIntent.CLARIFY,
+                confidence=max(0.0, self.threshold - 0.01),
+                reason="ambiguous_multi_intent",
+                candidates=candidates,
+            )
+        return RouteDecision(
+            intent=AgentIntent.KB,
+            confidence=max(self.threshold, 0.76),
+            reason="safe_kb_default",
+            candidates=(RouteCandidate(intent=AgentIntent.KB, score=0.76, source="rule"),),
+        )
+
+    def plan(self, query: str) -> AgentExecutionPlan:
+        matched = self._matched(query)[: self.max_experts]
+        steps = tuple(
+            AgentPlanStep(
+                ordinal=index,
+                intent=intent,
+                read_only=intent
+                not in {AgentIntent.REFUND, AgentIntent.ESCALATION, AgentIntent.ORDER},
+            )
+            for index, intent in enumerate(matched, start=1)
+        )
+        return AgentExecutionPlan(
+            steps=steps,
+            max_steps=self.max_experts,
+            requires_arbitration=len(steps) > 1,
+        )
+
+    @staticmethod
+    def _matched(query: str) -> tuple[AgentIntent, ...]:
+        return tuple(intent for intent, pattern in _RULES if pattern.search(query))
+
+
 def route(query: str, *, threshold: float) -> RouteDecision:
-    matched = [intent for intent, pattern in _RULES if pattern.search(query)]
-    if len(matched) == 1:
-        return RouteDecision(matched[0], 0.99, "rule")
-    if len(matched) > 1:
-        high_risk = [
-            item for item in matched if item in {AgentIntent.REFUND, AgentIntent.ESCALATION}
-        ]
-        if len(high_risk) == 1:
-            return RouteDecision(high_risk[0], 0.9, "multi_intent_high_risk")
-        return RouteDecision(AgentIntent.CLARIFY, threshold - 0.01, "ambiguous_multi_intent")
-    return RouteDecision(AgentIntent.KB, max(threshold, 0.76), "safe_kb_default")
+    """Compatibility wrapper for evaluations and callers not using dependency injection."""
+
+    return DeterministicRouter(threshold=threshold).route(query)

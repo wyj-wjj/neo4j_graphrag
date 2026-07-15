@@ -34,15 +34,17 @@
 | Milvus | 图谱/关键词可继续，记录分支失败 |
 | Neo4j | Dense/关键词可继续，记录分支失败 |
 | Reranker | 使用 RRF 顺序回退 |
-| LLM | 返回统一依赖/超时错误，不用参数知识补企业事实 |
+| LLM/Tool | 总超时、幂等有限重试、依赖舱壁/熔断；失败安全停止并转人工，不用参数知识补企业事实 |
 | Redis | readiness 失败；Checkpoint/限流不静默绕过 |
 
 ## 数据与隐私
 
 日志、Trace、审计只保存脱敏摘要和必要 ID。数据库备份、上传对象和 Langfuse 数据必须遵循同一保留策略。
 删除/下线采用真理源失效再清派生索引；生产删除策略需要额外的合规审批与保留期配置。
+阶段 1.5 长期记忆没有 Redis 或向量副本；删除会在 MySQL 事务中擦除同一键全部版本的原值。未来接入
+语义记忆索引时，必须先实现并测试同一删除传播契约。自动长期记忆写入必须保持关闭。
 
 ## 验收
 
-`make acceptance` 运行冻结安装、静态门禁、覆盖率、Golden Set、OpenAPI、前端测试/构建和 Playwright。
+`make acceptance` 运行冻结安装、静态门禁、覆盖率、两套 Golden Set、OpenAPI、前端测试/构建和 Playwright。
 真实依赖与镜像检查由 GitHub Actions 的 `real-integration`、`images` Job 执行。

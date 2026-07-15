@@ -8,10 +8,17 @@ import time
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
-from graphrag.domain.errors import AuthorizationError, ConflictError, NotFoundError
+from graphrag.domain.errors import (
+    AuthorizationError,
+    ConflictError,
+    NotFoundError,
+    ValidationError,
+)
 from graphrag.domain.events import EventEnvelope
+from graphrag.domain.ids import new_id
 from graphrag.domain.models import (
     AccessPolicy,
     ActionDraft,
@@ -24,10 +31,16 @@ from graphrag.domain.models import (
     IndexStatus,
     IngestionStatus,
     IngestionTask,
+    LongTermMemory,
+    MemoryCategory,
+    MemorySettings,
+    MemoryStatus,
+    SafeResumeSnapshot,
     SearchCandidate,
     utc_now,
 )
 from graphrag.domain.state import AgentState
+from graphrag.domain.state_migrations import StateMigrationRegistry
 
 
 class InMemoryKnowledgeRepository:
@@ -477,23 +490,238 @@ class InMemoryGraphStore:
 
 class InMemoryCheckpointStore:
     def __init__(self) -> None:
-        self.states: dict[tuple[str, str], tuple[float, AgentState]] = {}
+        self.states: dict[tuple[str, str], tuple[float, str]] = {}
 
     async def put(self, state: AgentState, *, ttl_seconds: int) -> None:
-        self.states[(state.tenant_id, state.session_id)] = (time.monotonic() + ttl_seconds, state)
+        self.states[(state.tenant_id, state.session_id)] = (
+            time.monotonic() + ttl_seconds,
+            state.model_dump_json(),
+        )
 
     async def get(self, tenant_id: str, session_id: str) -> AgentState | None:
         item = self.states.get((tenant_id, session_id))
         if item is None:
             return None
-        expires, state = item
+        expires, raw = item
         if expires <= time.monotonic():
             self.states.pop((tenant_id, session_id), None)
             return None
+        state = StateMigrationRegistry().load_json(raw)
+        if state.tenant_id != tenant_id or state.session_id != session_id:
+            raise ValidationError("Checkpoint 身份边界不匹配")
         return state
 
     async def delete(self, tenant_id: str, session_id: str) -> None:
         self.states.pop((tenant_id, session_id), None)
+
+
+class InMemorySafeResumeStore:
+    def __init__(self) -> None:
+        self.snapshots: dict[str, SafeResumeSnapshot] = {}
+        self.by_draft: dict[tuple[str, str], str] = {}
+        self._lock = asyncio.Lock()
+
+    async def save(self, snapshot: SafeResumeSnapshot) -> SafeResumeSnapshot:
+        async with self._lock:
+            key = (snapshot.tenant_id, snapshot.draft_id)
+            existing_id = self.by_draft.get(key)
+            if existing_id is not None:
+                existing = self.snapshots[existing_id]
+                if existing.run_id != snapshot.run_id:
+                    raise ConflictError("审批草单已关联到不同运行")
+                return existing
+            self.snapshots[snapshot.snapshot_id] = snapshot
+            self.by_draft[key] = snapshot.snapshot_id
+            return snapshot
+
+    async def get_by_draft(self, tenant_id: str, draft_id: str) -> SafeResumeSnapshot | None:
+        snapshot_id = self.by_draft.get((tenant_id, draft_id))
+        if snapshot_id is None:
+            return None
+        snapshot = self.snapshots[snapshot_id]
+        if snapshot.status == "pending" and snapshot.expires_at <= utc_now():
+            snapshot = snapshot.model_copy(
+                update={"status": "expired", "next_action": "none", "updated_at": utc_now()}
+            )
+            self.snapshots[snapshot_id] = snapshot
+        return snapshot
+
+    async def mark_resumed(
+        self,
+        tenant_id: str,
+        snapshot_id: str,
+        *,
+        decision: str,
+        result_hash: str,
+        final_answer: str,
+        recovery_source: str,
+    ) -> SafeResumeSnapshot:
+        async with self._lock:
+            snapshot = self.snapshots.get(snapshot_id)
+            if snapshot is None or snapshot.tenant_id != tenant_id:
+                raise NotFoundError("安全恢复快照不存在")
+            if snapshot.status == "resumed":
+                if snapshot.decision != decision:
+                    raise ConflictError("审批草单已由不同决定恢复")
+                return snapshot
+            if snapshot.status != "pending" or snapshot.expires_at <= utc_now():
+                raise ConflictError("安全恢复快照不可恢复")
+            updated = SafeResumeSnapshot.model_validate(
+                {
+                    **snapshot.model_dump(mode="python"),
+                    "status": "resumed",
+                    "decision": decision,
+                    "next_action": "none",
+                    "resume_result_hash": result_hash,
+                    "final_answer": final_answer,
+                    "recovery_source": recovery_source,
+                    "updated_at": utc_now(),
+                }
+            )
+            self.snapshots[snapshot_id] = updated
+            return updated
+
+
+class InMemoryLongTermMemoryStore:
+    def __init__(self) -> None:
+        self.memories: dict[str, LongTermMemory] = {}
+        self.user_settings: dict[tuple[str, str], MemorySettings] = {}
+        self._lock = asyncio.Lock()
+
+    async def settings(self, identity: IdentityContext) -> MemorySettings:
+        key = (identity.tenant_id, identity.user_id)
+        return self.user_settings.get(
+            key,
+            MemorySettings(tenant_id=identity.tenant_id, user_id=identity.user_id),
+        )
+
+    async def set_enabled(self, identity: IdentityContext, *, enabled: bool) -> MemorySettings:
+        updated = MemorySettings(
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            enabled=enabled,
+            auto_write_enabled=False,
+        )
+        async with self._lock:
+            self.user_settings[(identity.tenant_id, identity.user_id)] = updated
+        return updated
+
+    async def create_confirmed(
+        self,
+        identity: IdentityContext,
+        *,
+        category: MemoryCategory,
+        key: str,
+        value: str,
+        source_turn_id: str,
+        expires_at: datetime | None,
+    ) -> LongTermMemory:
+        if expires_at is not None and expires_at <= utc_now():
+            raise ValidationError("长期记忆过期时间必须在未来")
+        async with self._lock:
+            if any(
+                item.tenant_id == identity.tenant_id
+                and item.user_id == identity.user_id
+                and item.key == key
+                and item.status is MemoryStatus.ACTIVE
+                for item in self.memories.values()
+            ):
+                raise ConflictError("同名长期记忆已存在，请使用纠正接口")
+            memory = LongTermMemory(
+                tenant_id=identity.tenant_id,
+                user_id=identity.user_id,
+                category=category,
+                key=key,
+                value=value,
+                source_turn_id=source_turn_id,
+                confirmation_method="explicit_user",
+                confirmed_by=identity.user_id,
+                expires_at=expires_at,
+            )
+            self.memories[memory.memory_id] = memory
+            return memory
+
+    async def list_active(self, identity: IdentityContext) -> list[LongTermMemory]:
+        if not (await self.settings(identity)).enabled:
+            return []
+        now = utc_now()
+        return sorted(
+            (
+                item
+                for item in self.memories.values()
+                if item.tenant_id == identity.tenant_id
+                and item.user_id == identity.user_id
+                and item.status is MemoryStatus.ACTIVE
+                and (item.expires_at is None or item.expires_at > now)
+            ),
+            key=lambda item: (item.key, -item.version),
+        )
+
+    async def correct(
+        self,
+        identity: IdentityContext,
+        memory_id: str,
+        *,
+        value: str,
+        source_turn_id: str,
+        expires_at: datetime | None,
+    ) -> LongTermMemory:
+        if expires_at is not None and expires_at <= utc_now():
+            raise ValidationError("长期记忆过期时间必须在未来")
+        async with self._lock:
+            current = self._owned(identity, memory_id)
+            if current.status is not MemoryStatus.ACTIVE:
+                raise ConflictError("只有有效长期记忆可以纠正")
+            now = utc_now()
+            self.memories[memory_id] = current.model_copy(
+                update={"status": MemoryStatus.CORRECTED, "updated_at": now}
+            )
+            corrected = current.model_copy(
+                update={
+                    "memory_id": new_id(),
+                    "value": value,
+                    "source_turn_id": source_turn_id,
+                    "confirmed_by": identity.user_id,
+                    "version": current.version + 1,
+                    "status": MemoryStatus.ACTIVE,
+                    "supersedes_memory_id": current.memory_id,
+                    "expires_at": expires_at,
+                    "created_at": now,
+                    "updated_at": now,
+                    "deleted_at": None,
+                }
+            )
+            self.memories[corrected.memory_id] = corrected
+            return corrected
+
+    async def delete(self, identity: IdentityContext, memory_id: str) -> None:
+        async with self._lock:
+            current = self._owned(identity, memory_id)
+            now = utc_now()
+            for stored_id, stored in tuple(self.memories.items()):
+                if (
+                    stored.tenant_id == identity.tenant_id
+                    and stored.user_id == identity.user_id
+                    and stored.key == current.key
+                ):
+                    self.memories[stored_id] = stored.model_copy(
+                        update={
+                            "value": "[deleted]",
+                            "status": MemoryStatus.DELETED,
+                            "updated_at": now,
+                            "deleted_at": now,
+                        }
+                    )
+
+    def _owned(self, identity: IdentityContext, memory_id: str) -> LongTermMemory:
+        memory = self.memories.get(memory_id)
+        if (
+            memory is None
+            or memory.tenant_id != identity.tenant_id
+            or memory.user_id != identity.user_id
+        ):
+            raise NotFoundError("长期记忆不存在")
+        return memory
 
 
 class InMemoryEventPublisher:

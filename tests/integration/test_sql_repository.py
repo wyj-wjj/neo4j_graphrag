@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
 from sqlalchemy import select
 
-from graphrag.domain.errors import NotFoundError
+from graphrag.application.context import ContextAssembler, ContextPolicy, HeuristicTokenEstimator
+from graphrag.application.sessions import TurnDisposition
+from graphrag.domain.errors import ConflictError, NotFoundError
 from graphrag.domain.events import EventEnvelope
 from graphrag.domain.ids import new_id
 from graphrag.domain.models import (
@@ -15,25 +18,40 @@ from graphrag.domain.models import (
     AnswerStatus,
     ChatResult,
     ChunkRecord,
+    ConversationState,
     DocumentRecord,
     DocumentVersion,
+    GenerationManifest,
     IdentityContext,
     IngestionStatus,
     IngestionTask,
+    MemoryCategory,
     RiskLevel,
+    SafeResumeSnapshot,
     SourceKind,
     utc_now,
 )
 from graphrag.infrastructure.database import (
+    AgentRunORM,
     AgentStepORM,
     Base,
     ChunkACLORM,
+    ContextManifestORM,
     Database,
+    GenerationManifestORM,
+    LongTermMemoryORM,
+    MessageORM,
     OutboxEventORM,
+    SessionORM,
     SQLKnowledgeRepository,
     ToolCallLogORM,
 )
-from graphrag.infrastructure.sql_services import SQLAudit, SQLSessionService
+from graphrag.infrastructure.sql_services import (
+    SQLAudit,
+    SQLLongTermMemoryStore,
+    SQLSafeResumeStore,
+    SQLSessionService,
+)
 
 
 @pytest.fixture
@@ -94,6 +112,42 @@ async def create_knowledge(
 
 
 @pytest.mark.asyncio
+async def test_sql_long_term_memory_is_confirmed_versioned_and_deleted(database: Database) -> None:
+    store = SQLLongTermMemoryStore(database)
+    owner = IdentityContext(tenant_id="default", user_id="memory-owner", roles=frozenset({"user"}))
+    created = await store.create_confirmed(
+        owner,
+        category=MemoryCategory.PREFERENCE,
+        key="style",
+        value="concise",
+        source_turn_id="client-turn-memory-0001",
+        expires_at=utc_now() + timedelta(days=30),
+    )
+    corrected = await store.correct(
+        owner,
+        created.memory_id,
+        value="detailed",
+        source_turn_id="client-turn-memory-0002",
+        expires_at=None,
+    )
+    assert corrected.version == 2
+    assert [item.value for item in await store.list_active(owner)] == ["detailed"]
+    await store.delete(owner, corrected.memory_id)
+    assert await store.list_active(owner) == []
+    async with database.session() as session:
+        rows = (
+            await session.scalars(
+                select(LongTermMemoryORM).where(
+                    LongTermMemoryORM.tenant_id == owner.tenant_id,
+                    LongTermMemoryORM.user_id == owner.user_id,
+                )
+            )
+        ).all()
+        assert {row.status for row in rows} == {"deleted"}
+        assert {row.value for row in rows} == {"[deleted]"}
+
+
+@pytest.mark.asyncio
 async def test_sql_truth_source_outbox_acl_and_deny_priority(database: Database) -> None:
     repository = SQLKnowledgeRepository(database)
     _, _, _, chunk = await create_knowledge(repository)
@@ -134,6 +188,215 @@ async def test_sql_session_is_tenant_and_user_isolated(database: Database) -> No
         await service.get(intruder, record.session_id)
     await service.close(owner, record.session_id)
     assert (await service.get(owner, record.session_id)).closed
+
+
+@pytest.mark.asyncio
+async def test_sql_session_turn_is_atomic_ordered_and_idempotent(database: Database) -> None:
+    service = SQLSessionService(database, model_version="fake")
+    owner = IdentityContext(tenant_id="default", user_id="owner", roles=frozenset({"user"}))
+    session = await service.create(owner)
+    claim = await service.begin_turn(
+        owner,
+        session.session_id,
+        client_turn_id="client-turn-0001",
+        request_id="request-0001",
+        query="question",
+    )
+    assert claim.disposition is TurnDisposition.STARTED
+    async with database.session() as db_session:
+        stored_session = await db_session.get(SessionORM, session.session_id)
+        run = await db_session.get(AgentRunORM, claim.run_id)
+        messages = (await db_session.scalars(select(MessageORM))).all()
+        assert stored_session is not None
+        assert stored_session.revision == 1
+        assert stored_session.active_run_id == claim.run_id
+        assert run is not None and run.status == "running"
+        assert [(message.sequence, message.role) for message in messages] == [(1, "user")]
+
+    result = ChatResult(
+        request_id=claim.request_id,
+        run_id=claim.run_id,
+        client_turn_id=claim.client_turn_id,
+        session_id=session.session_id,
+        status=AnswerStatus.ANSWERED,
+        answer="answer",
+        intent=AgentIntent.FAQ,
+        source=SourceKind.REAL,
+    )
+    await service.complete_turn(owner, claim, result)
+    replay = await service.begin_turn(
+        owner,
+        session.session_id,
+        client_turn_id="client-turn-0001",
+        request_id="request-0002",
+        query="question",
+    )
+    loaded = await service.get(owner, session.session_id)
+    assert replay.disposition is TurnDisposition.REPLAY
+    assert replay.result == result
+    assert [message.sequence for message in loaded.messages] == [1, 2]
+    assert loaded.revision == 2
+    assert loaded.active_run_id is None
+
+
+@pytest.mark.asyncio
+async def test_sql_session_concurrent_turns_have_single_winner(database: Database) -> None:
+    service = SQLSessionService(database, model_version="fake")
+    owner = IdentityContext(tenant_id="default", user_id="owner", roles=frozenset({"user"}))
+    session = await service.create(owner)
+
+    async def begin(index: int) -> TurnDisposition | str:
+        try:
+            claim = await service.begin_turn(
+                owner,
+                session.session_id,
+                client_turn_id=f"client-turn-{index:04d}",
+                request_id=f"request-{index:04d}",
+                query=f"question {index}",
+            )
+            return claim.disposition
+        except ConflictError:
+            return "conflict"
+
+    outcomes = await asyncio.gather(*(begin(index) for index in range(6)))
+    assert outcomes.count(TurnDisposition.STARTED) == 1
+    assert outcomes.count("conflict") == 5
+
+
+@pytest.mark.asyncio
+async def test_sql_session_persists_conversation_state_and_redacted_manifest(
+    database: Database,
+) -> None:
+    service = SQLSessionService(database, model_version="fake")
+    owner = IdentityContext(tenant_id="default", user_id="owner", roles=frozenset({"user"}))
+    session = await service.create(owner)
+    claim = await service.begin_turn(
+        owner,
+        session.session_id,
+        client_turn_id="client-turn-memory-0001",
+        request_id="request-memory-0001",
+        query="remember this",
+    )
+    state = ConversationState(
+        tenant_id="default",
+        session_id=session.session_id,
+        summary="Earlier discussion summary",
+        summary_version=1,
+        summary_through_sequence=claim.user_sequence,
+        last_processed_sequence=claim.user_sequence,
+    )
+    manifest = (
+        ContextAssembler(
+            policy=ContextPolicy(model_context_window_tokens=1024, reserved_output_tokens=128),
+            estimator=HeuristicTokenEstimator(),
+        )
+        .assemble(
+            run_id=claim.run_id,
+            tenant_id="default",
+            session_id=session.session_id,
+            identity=owner,
+            model="fake",
+            system_instructions="system",
+            current_query="remember this",
+            history=claim.history,
+            conversation_state=state,
+        )
+        .manifest
+    )
+    result = ChatResult(
+        request_id=claim.request_id,
+        run_id=claim.run_id,
+        client_turn_id=claim.client_turn_id,
+        session_id=session.session_id,
+        status=AnswerStatus.ANSWERED,
+        answer="done",
+        intent=AgentIntent.FAQ,
+        source=SourceKind.REAL,
+    )
+    await service.complete_turn(
+        owner,
+        claim,
+        result,
+        conversation_state=state,
+        context_manifest=manifest,
+        generation_manifest=GenerationManifest(
+            run_id=claim.run_id,
+            tenant_id="default",
+            prompt_bundle_version="prompt-bundle-v1",
+            prompt_hashes={"agent-safety": "a" * 64},
+            chat_model="fake",
+            router_version="rule-router-v1",
+            embedding_model="fake-embedding",
+            embedding_version="v1",
+            rerank_model="fake-rerank",
+            state_version=2,
+            context_policy_version="context-policy-v1",
+            evaluation_set_version="memory-reliability-v1",
+        ),
+    )
+    loaded = await service.get(owner, session.session_id)
+    assert loaded.conversation_state == state
+    async with database.session() as db_session:
+        stored = await db_session.scalar(
+            select(ContextManifestORM).where(ContextManifestORM.run_id == claim.run_id)
+        )
+        assert stored is not None
+        assert stored.actual_input_tokens <= stored.input_budget_tokens
+        assert "remember this" not in str(stored.dropped_items)
+        generation = await db_session.scalar(
+            select(GenerationManifestORM).where(GenerationManifestORM.run_id == claim.run_id)
+        )
+        assert generation is not None
+        assert generation.prompt_bundle_version == "prompt-bundle-v1"
+
+
+@pytest.mark.asyncio
+async def test_sql_safe_resume_snapshot_is_idempotent_and_decision_locked(
+    database: Database,
+) -> None:
+    store = SQLSafeResumeStore(database)
+    snapshot = SafeResumeSnapshot(
+        tenant_id="default",
+        user_id="owner",
+        roles=frozenset({"user"}),
+        session_id=new_id(),
+        run_id=new_id(),
+        request_id="request-resume-1",
+        client_turn_id="client-turn-resume-1",
+        draft_id=new_id(),
+        completed_side_effects=("refund.calculate.v1", "refund.create_draft.v1"),
+        expires_at=utc_now() + timedelta(hours=1),
+    )
+    assert await store.save(snapshot) == snapshot
+    assert await store.save(snapshot) == snapshot
+    resumed = await store.mark_resumed(
+        "default",
+        snapshot.snapshot_id,
+        decision="approved",
+        result_hash="a" * 64,
+        final_answer="fake approved; no execution",
+        recovery_source="langgraph",
+    )
+    assert resumed.status == "resumed"
+    assert resumed.decision == "approved"
+    duplicate = await store.mark_resumed(
+        "default",
+        snapshot.snapshot_id,
+        decision="approved",
+        result_hash="a" * 64,
+        final_answer="fake approved; no execution",
+        recovery_source="langgraph",
+    )
+    assert duplicate == resumed
+    with pytest.raises(ConflictError, match="不同决定"):
+        await store.mark_resumed(
+            "default",
+            snapshot.snapshot_id,
+            decision="rejected",
+            result_hash="b" * 64,
+            final_answer="rejected",
+            recovery_source="langgraph",
+        )
 
 
 @pytest.mark.asyncio
@@ -201,10 +464,24 @@ async def test_sql_repository_task_index_keyword_draft_and_session_audit(
             "finished_at": utc_now().isoformat(),
         },
     )
+    tool_call_id = new_id()
     await audit.record(
         "tool.order.query.v1",
         {
-            "tool_call_id": new_id(),
+            "tool_call_id": tool_call_id,
+            "run_id": result.run_id,
+            "tenant_id": "default",
+            "tool_name": "order.query.v1",
+            "schema_version": 1,
+            "risk_level": "read",
+            "status": "retrying",
+            "input_keys": ["query"],
+        },
+    )
+    await audit.record(
+        "tool.order.query.v1",
+        {
+            "tool_call_id": tool_call_id,
             "run_id": result.run_id,
             "tenant_id": "default",
             "tool_name": "order.query.v1",
@@ -212,11 +489,16 @@ async def test_sql_repository_task_index_keyword_draft_and_session_audit(
             "risk_level": "read",
             "status": "succeeded",
             "input_keys": ["query"],
+            "attempts": 2,
+            "retries": 1,
         },
     )
     async with database.session() as db_session:
         assert len((await db_session.scalars(select(AgentStepORM))).all()) == 1
-        assert len((await db_session.scalars(select(ToolCallLogORM))).all()) == 1
+        logs = (await db_session.scalars(select(ToolCallLogORM))).all()
+        assert len(logs) == 1
+        assert logs[0].status == "succeeded"
+        assert logs[0].output_summary["retries"] == 1
 
 
 @pytest.mark.asyncio

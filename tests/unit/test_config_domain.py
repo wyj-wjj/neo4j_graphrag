@@ -27,6 +27,8 @@ def test_settings_reject_dangerous_production_and_bad_thresholds() -> None:
         Settings(chunk_target_chars=700, chunk_max_chars=600)
     with pytest.raises(PydanticValidationError):
         Settings(jwt_dev_secret=SecretStr("short"))
+    with pytest.raises(PydanticValidationError, match="automatic long-term memory"):
+        Settings(long_term_memory_auto_write_enabled=True)
 
 
 def test_production_requires_asymmetric_auth_and_real_credentials() -> None:

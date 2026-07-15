@@ -6,8 +6,8 @@
 > 目标：先补齐上下文、记忆、并发、恢复、流式、治理和评测闭环，再接入真实业务与分布式基础设施。
 > 权威关系：`phase1_env_checklist.md` 仍是阶段一权威设计文档；本文只记录阶段 1.5 的问题、根因、加固方案和验收门槛，不改变阶段二边界。
 
-实现结果以 `architecture.md` 为准。里程碑 A–E 已完成；当前本地验收为 Ruff、mypy、95 个 pytest
-通过（1 个真实依赖测试因无 Docker 跳过）、86.43% 覆盖率、阶段一 Golden Set 和
+实现结果以 `architecture.md` 为准。里程碑 A–E 已完成；当前本地验收为 Ruff、mypy、96 个 pytest
+通过（1 个真实依赖测试因无 Docker 跳过）、86.05% 覆盖率、阶段一 Golden Set 和
 `memory-reliability-v1` 全部门槛通过。真实百炼与生产集群容量仍不是本地 Fake 指标可以替代的上线证据。
 
 ## 1. 核心结论

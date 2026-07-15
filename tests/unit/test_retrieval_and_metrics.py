@@ -3,8 +3,9 @@ from __future__ import annotations
 import pytest
 
 from graphrag.domain.errors import ValidationError
-from graphrag.domain.models import ChatMessage, SearchCandidate
+from graphrag.domain.models import ChatMessage, Evidence, SearchCandidate, utc_now
 from graphrag.retrieval.evaluation import accuracy, ndcg_at_k, recall_at_k, reciprocal_rank
+from graphrag.retrieval.pipeline import GraphRAGPipeline
 from graphrag.retrieval.query import normalize_query, rewrite_query
 from graphrag.retrieval.rrf import reciprocal_rank_fusion
 
@@ -48,3 +49,29 @@ def test_offline_metrics_match_hand_calculation() -> None:
     assert accuracy(["a", "b"], ["a", "x"]) == 0.5
     with pytest.raises(ValueError):
         accuracy(["a"], ["a", "b"])
+
+
+def test_conflicting_effective_evidence_is_detected_before_generation() -> None:
+    common = {
+        "document_title": "同名政策",
+        "document_version": 1,
+        "updated_at": utc_now(),
+        "source_location": "page:1",
+        "score": 1.0,
+        "sources": ("keyword",),
+        "conflict_group": "title:同名政策",
+    }
+    first = Evidence(
+        chunk_id="chunk-1",
+        document_id="document-1",
+        content="保修期两年",
+        **common,
+    )
+    second = Evidence(
+        chunk_id="chunk-2",
+        document_id="document-2",
+        content="保修期一年",
+        **common,
+    )
+    assert GraphRAGPipeline._conflict_groups((first, second)) == ("title:同名政策",)
+    assert GraphRAGPipeline._conflict_groups((first, first)) == ()

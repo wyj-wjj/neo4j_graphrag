@@ -6,6 +6,17 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from graphrag.agents.orchestrator import AgentOrchestrator, default_faqs
+from graphrag.agents.router import DeterministicRouter
+from graphrag.application.context import (
+    ContextAssembler,
+    ContextPolicy,
+    ConversationMemoryManager,
+    HeuristicTokenEstimator,
+)
+from graphrag.application.knowledge_quality import KnowledgeQualityService
+from graphrag.application.memory_governance import LongTermMemoryService
+from graphrag.application.prompts import PromptRegistry
+from graphrag.application.safety import RuleBasedSafety
 from graphrag.application.sessions import InMemorySessionService
 from graphrag.config import AppEnvironment, Settings
 from graphrag.domain.ports import (
@@ -17,8 +28,12 @@ from graphrag.domain.ports import (
     EventPublisherPort,
     GraphStorePort,
     KnowledgeRepositoryPort,
+    LongTermMemoryPort,
     OCRPort,
     RerankerPort,
+    RouterPort,
+    SafeResumeStorePort,
+    SafetyPort,
     TracePort,
     VectorStorePort,
 )
@@ -30,7 +45,9 @@ from graphrag.infrastructure.memory import (
     InMemoryEventPublisher,
     InMemoryGraphStore,
     InMemoryKnowledgeRepository,
+    InMemoryLongTermMemoryStore,
     InMemoryRateLimiter,
+    InMemorySafeResumeStore,
     InMemoryVectorStore,
 )
 from graphrag.infrastructure.milvus_adapter import MilvusVectorStore
@@ -42,7 +59,12 @@ from graphrag.infrastructure.model_adapter import (
 from graphrag.infrastructure.neo4j_adapter import Neo4jGraphStore
 from graphrag.infrastructure.object_store import LocalObjectStore
 from graphrag.infrastructure.redis_adapter import RedisAdapter
-from graphrag.infrastructure.sql_services import SQLAudit, SQLSessionService
+from graphrag.infrastructure.sql_services import (
+    SQLAudit,
+    SQLLongTermMemoryStore,
+    SQLSafeResumeStore,
+    SQLSessionService,
+)
 from graphrag.ingestion.chunker import StructureAwareChunker
 from graphrag.ingestion.parsers import ParserRegistry
 from graphrag.ingestion.service import IngestionCoordinator, IngestionWorker
@@ -69,6 +91,10 @@ class Runtime:
     rate_limiter: InMemoryRateLimiter | RedisAdapter
     trace: TracePort
     sessions: InMemorySessionService | SQLSessionService
+    safe_resume: SafeResumeStorePort
+    memories: LongTermMemoryService
+    knowledge_quality: KnowledgeQualityService
+    safety: SafetyPort
     ingestion: IngestionCoordinator
     worker: IngestionWorker
     retrieval: GraphRAGPipeline
@@ -160,6 +186,8 @@ def build_runtime(settings: Settings) -> Runtime:
         trace = LangfuseTrace(trace_client)
         closeables.append(trace)
 
+    prompt_registry = PromptRegistry()
+
     if settings.use_fake_external_clients:
         from langgraph.checkpoint.memory import InMemorySaver
 
@@ -195,6 +223,8 @@ def build_runtime(settings: Settings) -> Runtime:
         audit: AuditPort = InMemoryAudit()
         rate_limiter: InMemoryRateLimiter | RedisAdapter = InMemoryRateLimiter()
         sessions: InMemorySessionService | SQLSessionService = InMemorySessionService()
+        safe_resume: SafeResumeStorePort = InMemorySafeResumeStore()
+        memory_store: LongTermMemoryPort = InMemoryLongTermMemoryStore()
         ocr = FakeOCR()
     else:
         database = Database(settings.database_url, pool_size=settings.database_pool_size)
@@ -235,7 +265,13 @@ def build_runtime(settings: Settings) -> Runtime:
         publisher = InMemoryEventPublisher()
         audit = SQLAudit(database, default_tenant_id=settings.default_tenant_id)
         rate_limiter = redis
-        sessions = SQLSessionService(database, model_version=settings.chat_model)
+        sessions = SQLSessionService(
+            database,
+            model_version=settings.chat_model,
+            prompt_version=prompt_registry.bundle_version,
+        )
+        safe_resume = SQLSafeResumeStore(database)
+        memory_store = SQLLongTermMemoryStore(database)
         ocr = BailianOCR(
             api_key=api_key,
             base_url=str(settings.llm_base_url),
@@ -270,6 +306,35 @@ def build_runtime(settings: Settings) -> Runtime:
         ),
     )
     worker = IngestionWorker(ingestion, concurrency=settings.ingestion_concurrency)
+    token_estimator = HeuristicTokenEstimator()
+    context_assembler = ContextAssembler(
+        policy=ContextPolicy(
+            version=settings.context_policy_version,
+            model_context_window_tokens=settings.model_context_window_tokens,
+            reserved_output_tokens=settings.context_reserved_output_tokens,
+            recent_history_ratio=settings.context_recent_history_ratio,
+            working_memory_ratio=settings.context_working_memory_ratio,
+            external_evidence_ratio=settings.context_external_evidence_ratio,
+            fixed_context_ratio=settings.context_fixed_ratio,
+        ),
+        estimator=token_estimator,
+    )
+    memory_manager = ConversationMemoryManager(
+        estimator=token_estimator,
+        summary_trigger_tokens=settings.context_summary_trigger_tokens,
+        summary_max_tokens=settings.context_summary_max_tokens,
+    )
+    safety: SafetyPort = RuleBasedSafety()
+    memories = LongTermMemoryService(
+        store=memory_store,
+        audit=audit,
+        auto_write_enabled=settings.long_term_memory_auto_write_enabled,
+    )
+    knowledge_quality = KnowledgeQualityService(repository=repository)
+    router: RouterPort = DeterministicRouter(
+        threshold=settings.router_confidence_threshold,
+        max_experts=2,
+    )
     retrieval = GraphRAGPipeline(
         settings=settings,
         repository=repository,
@@ -280,6 +345,8 @@ def build_runtime(settings: Settings) -> Runtime:
         reranker=reranker,
         chat_model=chat_model,
         trace=trace,
+        context_assembler=context_assembler,
+        prompt_registry=prompt_registry,
     )
     business = FakeBusinessServices(repository)
     tools = build_default_registry(settings.tool_timeout_seconds)
@@ -294,6 +361,11 @@ def build_runtime(settings: Settings) -> Runtime:
         graph_checkpointer=langgraph_checkpointer,
         tool_executor=ToolExecutor(registry=tools, audit=audit, trace=trace),
         audit=audit,
+        context_assembler=context_assembler,
+        memory_manager=memory_manager,
+        safe_resume=safe_resume,
+        prompt_registry=prompt_registry,
+        router=router,
     )
     return Runtime(
         settings=settings,
@@ -310,6 +382,10 @@ def build_runtime(settings: Settings) -> Runtime:
         rate_limiter=rate_limiter,
         trace=trace,
         sessions=sessions,
+        safe_resume=safe_resume,
+        memories=memories,
+        knowledge_quality=knowledge_quality,
+        safety=safety,
         ingestion=ingestion,
         worker=worker,
         retrieval=retrieval,

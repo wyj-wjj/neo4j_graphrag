@@ -5,10 +5,20 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from graphrag.domain.errors import AuthorizationError, ConflictError, NotFoundError
-from graphrag.domain.models import IdentityContext, RiskLevel
+from graphrag.domain.models import (
+    ActionDraft,
+    AnswerStatus,
+    IdentityContext,
+    LogisticsInfo,
+    OrderInfo,
+    RefundQuote,
+    RiskLevel,
+)
+from graphrag.retrieval.pipeline import RetrievalResult
+from graphrag.tools.schemas import DraftToolInputV1, QueryToolInputV1
 
 
 class RetryPolicy(StrEnum):
@@ -17,16 +27,25 @@ class RetryPolicy(StrEnum):
 
 
 class ToolSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, arbitrary_types_allowed=True)
     name: str = Field(pattern=r"^[a-z][a-z0-9_.-]+\.v[1-9][0-9]*$")
     agent: str
     description: str
     input_schema: dict[str, Any]
     output_schema: dict[str, Any]
+    input_model: type[BaseModel] = Field(exclude=True)
+    output_type: Any = Field(exclude=True)
+    dependency: str
     risk_level: RiskLevel
     required_roles: frozenset[str]
     timeout_seconds: float = Field(gt=0, le=120)
     retry_policy: RetryPolicy
+    max_attempts: int = Field(default=2, ge=1, le=5)
+    retry_backoff_seconds: float = Field(default=0.05, ge=0.0, le=5.0)
+    max_concurrency: int = Field(default=8, ge=1, le=1000)
+    max_output_bytes: int = Field(default=20_000, ge=256, le=1_000_000)
+    circuit_failure_threshold: int = Field(default=3, ge=1, le=100)
+    circuit_reset_seconds: float = Field(default=10.0, gt=0, le=600)
     audit_event: str
 
 
@@ -40,7 +59,7 @@ class ToolRegistry:
         if (
             spec.risk_level != RiskLevel.READ
             and spec.retry_policy == RetryPolicy.IDEMPOTENT
-            and "idempotency_key" not in spec.input_schema.get("properties", {})
+            and "idempotency_key" not in spec.input_model.model_fields
         ):
             raise ValueError("可重试写 Tool 必须声明 idempotency_key")
         self._specs[spec.name] = spec
@@ -68,33 +87,100 @@ class ToolRegistry:
 
 def build_default_registry(timeout_seconds: float) -> ToolRegistry:
     registry = ToolRegistry()
-    definitions = [
-        ("kb.hybrid_retrieve.v1", "kb", RiskLevel.READ, RetryPolicy.IDEMPOTENT),
-        ("faq.match.v1", "faq", RiskLevel.READ, RetryPolicy.IDEMPOTENT),
-        ("order.query.v1", "order", RiskLevel.READ, RetryPolicy.IDEMPOTENT),
-        ("order.update_address_draft.v1", "order", RiskLevel.LOW_WRITE, RetryPolicy.IDEMPOTENT),
-        ("logistics.query.v1", "logistics", RiskLevel.READ, RetryPolicy.IDEMPOTENT),
-        ("logistics.urge_draft.v1", "logistics", RiskLevel.LOW_WRITE, RetryPolicy.IDEMPOTENT),
-        ("refund.calculate.v1", "refund", RiskLevel.READ, RetryPolicy.IDEMPOTENT),
-        ("refund.create_draft.v1", "refund", RiskLevel.CRITICAL, RetryPolicy.IDEMPOTENT),
-        ("escalation.create_ticket.v1", "escalation", RiskLevel.LOW_WRITE, RetryPolicy.IDEMPOTENT),
+    definitions: list[tuple[str, str, RiskLevel, RetryPolicy, type[BaseModel], Any, str]] = [
+        (
+            "kb.hybrid_retrieve.v1",
+            "kb",
+            RiskLevel.READ,
+            RetryPolicy.IDEMPOTENT,
+            QueryToolInputV1,
+            tuple[str, AnswerStatus, RetrievalResult],
+            "knowledge",
+        ),
+        (
+            "faq.match.v1",
+            "faq",
+            RiskLevel.READ,
+            RetryPolicy.IDEMPOTENT,
+            QueryToolInputV1,
+            str,
+            "knowledge",
+        ),
+        (
+            "order.query.v1",
+            "order",
+            RiskLevel.READ,
+            RetryPolicy.IDEMPOTENT,
+            QueryToolInputV1,
+            OrderInfo,
+            "order",
+        ),
+        (
+            "order.update_address_draft.v1",
+            "order",
+            RiskLevel.LOW_WRITE,
+            RetryPolicy.IDEMPOTENT,
+            DraftToolInputV1,
+            ActionDraft,
+            "order",
+        ),
+        (
+            "logistics.query.v1",
+            "logistics",
+            RiskLevel.READ,
+            RetryPolicy.IDEMPOTENT,
+            QueryToolInputV1,
+            LogisticsInfo,
+            "logistics",
+        ),
+        (
+            "logistics.urge_draft.v1",
+            "logistics",
+            RiskLevel.LOW_WRITE,
+            RetryPolicy.IDEMPOTENT,
+            DraftToolInputV1,
+            ActionDraft,
+            "logistics",
+        ),
+        (
+            "refund.calculate.v1",
+            "refund",
+            RiskLevel.READ,
+            RetryPolicy.IDEMPOTENT,
+            QueryToolInputV1,
+            RefundQuote,
+            "refund",
+        ),
+        (
+            "refund.create_draft.v1",
+            "refund",
+            RiskLevel.CRITICAL,
+            RetryPolicy.IDEMPOTENT,
+            DraftToolInputV1,
+            ActionDraft,
+            "refund",
+        ),
+        (
+            "escalation.create_ticket.v1",
+            "escalation",
+            RiskLevel.LOW_WRITE,
+            RetryPolicy.IDEMPOTENT,
+            DraftToolInputV1,
+            ActionDraft,
+            "escalation",
+        ),
     ]
-    for name, agent, risk, retry in definitions:
-        properties: dict[str, Any] = {"query": {"type": "string"}}
-        if risk != RiskLevel.READ:
-            properties["idempotency_key"] = {"type": "string", "minLength": 8}
+    for name, agent, risk, retry, input_model, output_type, dependency in definitions:
         registry.register(
             ToolSpec(
                 name=name,
                 agent=agent,
                 description=name.replace(".", " "),
-                input_schema={
-                    "type": "object",
-                    "properties": properties,
-                    "required": sorted(properties),
-                    "additionalProperties": False,
-                },
-                output_schema={"type": "object"},
+                input_schema=input_model.model_json_schema(),
+                output_schema=TypeAdapter(output_type).json_schema(),
+                input_model=input_model,
+                output_type=output_type,
+                dependency=dependency,
                 risk_level=risk,
                 required_roles=frozenset({"user", "admin"}),
                 timeout_seconds=timeout_seconds,

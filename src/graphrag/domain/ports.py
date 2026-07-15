@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
+from datetime import datetime
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
@@ -10,9 +11,12 @@ from pydantic import BaseModel
 from graphrag.domain.events import EventEnvelope
 from graphrag.domain.models import (
     ActionDraft,
+    AgentExecutionPlan,
+    AgentOutcome,
     ChatCompletion,
     ChatDelta,
     ChunkRecord,
+    ConsolidatedOutcome,
     DocumentRecord,
     DocumentVersion,
     EmbeddingResult,
@@ -20,11 +24,18 @@ from graphrag.domain.models import (
     IdentityContext,
     IngestionTask,
     LogisticsInfo,
+    LongTermMemory,
+    MemoryCategory,
+    MemorySettings,
     OrderInfo,
     ParsedDocument,
     RefundQuote,
     RerankItem,
+    RouteDecision,
+    SafeResumeSnapshot,
+    SafetyAssessment,
     SearchCandidate,
+    TrustDomain,
 )
 from graphrag.domain.state import AgentState
 
@@ -141,6 +152,83 @@ class CheckpointStorePort(Protocol):
     async def get(self, tenant_id: str, session_id: str) -> AgentState | None: ...
 
     async def delete(self, tenant_id: str, session_id: str) -> None: ...
+
+
+@runtime_checkable
+class RouterPort(Protocol):
+    @property
+    def version(self) -> str: ...
+
+    def route(self, query: str) -> RouteDecision: ...
+
+    def plan(self, query: str) -> AgentExecutionPlan: ...
+
+
+@runtime_checkable
+class ResultConsolidatorPort(Protocol):
+    def consolidate(self, outcomes: Sequence[AgentOutcome]) -> ConsolidatedOutcome: ...
+
+
+@runtime_checkable
+class SafeResumeStorePort(Protocol):
+    async def save(self, snapshot: SafeResumeSnapshot) -> SafeResumeSnapshot: ...
+
+    async def get_by_draft(self, tenant_id: str, draft_id: str) -> SafeResumeSnapshot | None: ...
+
+    async def mark_resumed(
+        self,
+        tenant_id: str,
+        snapshot_id: str,
+        *,
+        decision: str,
+        result_hash: str,
+        final_answer: str,
+        recovery_source: str,
+    ) -> SafeResumeSnapshot: ...
+
+
+@runtime_checkable
+class LongTermMemoryPort(Protocol):
+    async def settings(self, identity: IdentityContext) -> MemorySettings: ...
+
+    async def set_enabled(self, identity: IdentityContext, *, enabled: bool) -> MemorySettings: ...
+
+    async def create_confirmed(
+        self,
+        identity: IdentityContext,
+        *,
+        category: MemoryCategory,
+        key: str,
+        value: str,
+        source_turn_id: str,
+        expires_at: datetime | None,
+    ) -> LongTermMemory: ...
+
+    async def list_active(self, identity: IdentityContext) -> list[LongTermMemory]: ...
+
+    async def correct(
+        self,
+        identity: IdentityContext,
+        memory_id: str,
+        *,
+        value: str,
+        source_turn_id: str,
+        expires_at: datetime | None,
+    ) -> LongTermMemory: ...
+
+    async def delete(self, identity: IdentityContext, memory_id: str) -> None: ...
+
+
+@runtime_checkable
+class SafetyPort(Protocol):
+    async def inspect(self, text: str, *, trust_domain: TrustDomain) -> SafetyAssessment: ...
+
+    async def validate_answer(
+        self,
+        result: Any,
+        *,
+        trust_domain: TrustDomain = TrustDomain.MODEL_OUTPUT,
+    ) -> SafetyAssessment: ...
 
 
 @runtime_checkable

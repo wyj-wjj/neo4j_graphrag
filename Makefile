@@ -16,6 +16,7 @@ coverage:
 
 evaluate:
 	uv run python scripts/evaluate.py
+	uv run python scripts/evaluate_reliability.py
 
 run:
 	uv run uvicorn graphrag.main:app --reload

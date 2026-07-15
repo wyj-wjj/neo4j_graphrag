@@ -200,18 +200,42 @@ class SessionORM(Base):
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     user_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_message_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    active_run_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    context_policy_version: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="context-policy-v1"
+    )
+    conversation_state: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    summary_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    summary_through_sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class MessageORM(Base):
     __tablename__ = "messages"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "session_id", "sequence", name="uq_message_session_sequence"),
+        UniqueConstraint(
+            "tenant_id",
+            "session_id",
+            "client_turn_id",
+            "role",
+            name="uq_message_turn_role",
+        ),
+    )
     message_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     session_id: Mapped[str] = mapped_column(
         ForeignKey("sessions.session_id", ondelete="CASCADE"), nullable=False, index=True
     )
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    client_turn_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="committed")
     content: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -219,15 +243,151 @@ class MessageORM(Base):
 
 class AgentRunORM(Base):
     __tablename__ = "agent_runs"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "session_id", "client_turn_id", name="uq_agent_run_client_turn"
+        ),
+    )
     run_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     request_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     session_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    client_turn_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_hash: Mapped[str | None] = mapped_column(String(64))
+    result_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    error_code: Mapped[str | None] = mapped_column(String(100))
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     model_version: Mapped[str] = mapped_column(String(255), nullable=False)
     prompt_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    state_version: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    checkpoint_version: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="agent-state-v2"
+    )
+    context_policy_version: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="context-policy-v1"
+    )
+    recovery_source: Mapped[str] = mapped_column(String(32), nullable=False, default="fresh")
+    session_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ContextManifestORM(Base):
+    __tablename__ = "context_manifests"
+    __table_args__ = (UniqueConstraint("tenant_id", "run_id", name="uq_context_manifest_run"),)
+    manifest_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    session_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    manifest_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
+    context_policy_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    model_context_window_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    reserved_output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    input_budget_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_tokens: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    actual_tokens: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    actual_input_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    borrowed_tokens: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    selected_message_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    selected_evidence_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    selected_tool_result_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    dropped_items: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class GenerationManifestORM(Base):
+    __tablename__ = "generation_manifests"
+    __table_args__ = (UniqueConstraint("tenant_id", "run_id", name="uq_generation_manifest_run"),)
+    manifest_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    manifest_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    prompt_bundle_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    prompt_hashes: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    chat_model: Mapped[str] = mapped_column(String(255), nullable=False)
+    router_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    embedding_model: Mapped[str] = mapped_column(String(255), nullable=False)
+    embedding_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    rerank_model: Mapped[str] = mapped_column(String(255), nullable=False)
+    state_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    context_policy_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    evaluation_set_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class UserMemorySettingsORM(Base):
+    __tablename__ = "user_memory_settings"
+    tenant_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    auto_write_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class LongTermMemoryORM(Base):
+    __tablename__ = "long_term_memories"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "user_id", "key", "version", name="uq_long_memory_key_version"
+        ),
+        Index(
+            "ix_long_memory_active",
+            "tenant_id",
+            "user_id",
+            "status",
+            "expires_at",
+        ),
+    )
+    memory_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(32), nullable=False)
+    key: Mapped[str] = mapped_column(String(100), nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    source_turn_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    confirmation_method: Mapped[str] = mapped_column(String(32), nullable=False)
+    confirmed_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    sensitivity: Mapped[str] = mapped_column(String(32), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    supersedes_memory_id: Mapped[str | None] = mapped_column(String(36))
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SafeResumeSnapshotORM(Base):
+    __tablename__ = "safe_resume_snapshots"
+    __table_args__ = (UniqueConstraint("tenant_id", "draft_id", name="uq_safe_resume_draft"),)
+    snapshot_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    roles: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    session_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    request_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    client_turn_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    draft_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    safe_node: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    decision: Mapped[str | None] = mapped_column(String(32))
+    next_action: Mapped[str] = mapped_column(String(100), nullable=False)
+    completed_side_effects: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    state_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    checkpoint_version: Mapped[str] = mapped_column(String(100), nullable=False)
+    recovery_source: Mapped[str] = mapped_column(String(32), nullable=False)
+    resume_result_hash: Mapped[str | None] = mapped_column(String(64))
+    final_answer: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
 
 
 class AgentStepORM(Base):

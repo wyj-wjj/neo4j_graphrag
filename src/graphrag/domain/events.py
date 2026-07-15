@@ -10,6 +10,17 @@ from pydantic import Field
 from graphrag.domain.ids import new_id
 from graphrag.domain.models import StrictModel, utc_now
 
+RunEventType = Literal[
+    "start",
+    "route",
+    "retrieving",
+    "delta",
+    "citation",
+    "status",
+    "error",
+    "end",
+]
+
 
 class EventEnvelope(StrictModel):
     event_id: str = Field(default_factory=new_id)
@@ -31,3 +42,15 @@ class EventEnvelope(StrictModel):
     occurred_at: datetime = Field(default_factory=utc_now)
     trace_id: str
     payload_summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class RunEvent(StrictModel):
+    """Versioned event emitted while one Agent run is in progress."""
+
+    event_version: int = Field(default=1, ge=1)
+    event_type: RunEventType
+    request_id: str
+    run_id: str
+    session_id: str
+    sequence: int = Field(ge=1)
+    data: dict[str, Any] = Field(default_factory=dict)

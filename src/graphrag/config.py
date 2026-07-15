@@ -90,6 +90,16 @@ class Settings(BaseSettings):
     ocr_page_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
     tool_timeout_seconds: float = Field(default=10.0, gt=0, le=120)
     checkpoint_ttl_seconds: int = Field(default=86400, ge=60)
+    context_policy_version: str = "context-policy-v1"
+    model_context_window_tokens: int = Field(default=32768, ge=1024, le=2_000_000)
+    context_reserved_output_tokens: int = Field(default=4096, ge=128, le=500_000)
+    context_recent_history_ratio: float = Field(default=0.30, ge=0.0, le=1.0)
+    context_working_memory_ratio: float = Field(default=0.20, ge=0.0, le=1.0)
+    context_external_evidence_ratio: float = Field(default=0.40, ge=0.0, le=1.0)
+    context_fixed_ratio: float = Field(default=0.10, ge=0.0, le=1.0)
+    context_summary_trigger_tokens: int = Field(default=6000, ge=128)
+    context_summary_max_tokens: int = Field(default=1500, ge=64)
+    long_term_memory_auto_write_enabled: bool = False
     chat_rate_limit_per_minute: int = Field(default=30, ge=1, le=10000)
     upload_rate_limit_per_minute: int = Field(default=10, ge=1, le=10000)
     fake_approval_secret: SecretStr | None = None
@@ -116,6 +126,21 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         if self.rag_final_top_k > self.rag_retrieval_top_k:
             msg = "RAG_FINAL_TOP_K must not exceed RAG_RETRIEVAL_TOP_K"
+            raise ValueError(msg)
+        if self.context_reserved_output_tokens >= self.model_context_window_tokens:
+            msg = "CONTEXT_RESERVED_OUTPUT_TOKENS must be smaller than the model context window"
+            raise ValueError(msg)
+        context_ratio = (
+            self.context_recent_history_ratio
+            + self.context_working_memory_ratio
+            + self.context_external_evidence_ratio
+            + self.context_fixed_ratio
+        )
+        if abs(context_ratio - 1.0) > 1e-9:
+            msg = "context budget ratios must sum to 1.0"
+            raise ValueError(msg)
+        if self.long_term_memory_auto_write_enabled:
+            msg = "phase 1.5 forbids automatic long-term memory writes"
             raise ValueError(msg)
         if self.app_env in {AppEnvironment.STAGING, AppEnvironment.PROD}:
             if self.use_fake_external_clients:

@@ -15,7 +15,7 @@ def upgrade() -> None:
     op.add_column("sessions", sa.Column("conversation_state", sa.JSON()))
     op.add_column(
         "sessions",
-        sa.Column("summary", sa.Text(), nullable=False, server_default=""),
+        sa.Column("summary", sa.Text(), nullable=True),
     )
     op.add_column(
         "sessions",
@@ -35,6 +35,7 @@ def upgrade() -> None:
         sa.column("session_id", sa.String(36)),
         sa.column("tenant_id", sa.String(128)),
         sa.column("conversation_state", sa.JSON()),
+        sa.column("summary", sa.Text()),
     )
     connection = op.get_bind()
     for session_id, tenant_id in connection.execute(
@@ -57,9 +58,12 @@ def upgrade() -> None:
                     "summary_version": 0,
                     "summary_through_sequence": 0,
                     "last_processed_sequence": 0,
-                }
+                },
+                summary="",
             )
         )
+    with op.batch_alter_table("sessions") as batch_op:
+        batch_op.alter_column("summary", existing_type=sa.Text(), nullable=False)
 
     op.create_table(
         "context_manifests",

@@ -120,7 +120,12 @@ class FakeModelProvider:
     async def extract(self, text: str, *, timeout: float) -> GraphExtraction:
         self._maybe_fail()
         candidates = sorted(
-            set(re.findall(r"[A-Za-z][A-Za-z0-9_-]{2,}|[\u4e00-\u9fff]{2,8}", text))
+            set(
+                re.findall(
+                    r"\b[A-Za-z][A-Za-z0-9_-]{2,127}\b|[\u4e00-\u9fff]{2,8}",
+                    text,
+                )
+            )
         )[:8]
         entities = tuple(
             Entity(

@@ -24,8 +24,9 @@
 2. `memory-bank/phase1_env_checklist.md`（本项目的权威设计文档）
 3. `memory-bank/tech-stack.md`
 4. `memory-bank/implementation-plan.md`
-5. `enterprise_multi_agent_architecture.md`
-6. 当前任务涉及目录中的 README、Schema、迁移和测试文件
+5. `memory-bank/phase1_5-hardening-plan.md`（阶段二前的健壮性加固基线）
+6. `enterprise_multi_agent_architecture.md`
+7. 当前任务涉及目录中的 README、Schema、迁移和测试文件
 
 如文档与代码不一致：
 

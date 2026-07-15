@@ -8,11 +8,12 @@ import hmac
 import json
 from collections.abc import AsyncIterator
 from contextlib import suppress
-from typing import Annotated, Any, cast
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from graphrag.agents.orchestrator import AgentExecution, RunEventSink
 from graphrag.api.auth import JWTAuth, get_identity, require_roles
 from graphrag.api.schemas import (
     ApprovalCallbackRequest,
@@ -29,12 +30,26 @@ from graphrag.api.schemas import (
     DocumentVersionResponse,
     HistoryResponse,
     IngestionTaskResponse,
+    KnowledgeIssueResponse,
+    KnowledgeQualityResponse,
+    MemoryCorrectionRequest,
+    MemoryCreateRequest,
+    MemoryListResponse,
+    MemoryResponse,
+    MemorySettingsRequest,
+    MemorySettingsResponse,
     ReadinessResponse,
     SessionCreateResponse,
     SessionResponse,
     TokenResponse,
 )
 from graphrag.application.container import Runtime
+from graphrag.application.run_events import RunEventEmitter
+from graphrag.application.sessions import (
+    SessionRecord,
+    TurnClaim,
+    TurnDisposition,
+)
 from graphrag.config import AppEnvironment
 from graphrag.domain.errors import (
     AuthorizationError,
@@ -43,9 +58,10 @@ from graphrag.domain.errors import (
     NotFoundError,
     OperationTimeoutError,
     RateLimitError,
+    UnsafeOperationError,
 )
-from graphrag.domain.events import EventEnvelope
-from graphrag.domain.models import IdentityContext
+from graphrag.domain.events import EventEnvelope, RunEvent
+from graphrag.domain.models import IdentityContext, LongTermMemory, TrustDomain
 from graphrag.observability.redaction import redact_text
 
 router = APIRouter(prefix="/api/v1")
@@ -141,6 +157,83 @@ async def get_history(
         limit=limit,
         total=len(record.messages),
     )
+
+
+def _memory_response(memory: LongTermMemory) -> MemoryResponse:
+    fields = set(MemoryResponse.model_fields)
+    return MemoryResponse.model_validate(memory.model_dump(include=fields, mode="python"))
+
+
+@router.get("/memories/settings", response_model=MemorySettingsResponse, tags=["memory"])
+async def get_memory_settings(request: Request, identity: Identity) -> MemorySettingsResponse:
+    settings = await _runtime(request).memories.settings(identity)
+    return MemorySettingsResponse(
+        enabled=settings.enabled,
+        auto_write_enabled=False,
+        updated_at=settings.updated_at,
+    )
+
+
+@router.put("/memories/settings", response_model=MemorySettingsResponse, tags=["memory"])
+async def update_memory_settings(
+    request: Request, identity: Identity, body: MemorySettingsRequest
+) -> MemorySettingsResponse:
+    settings = await _runtime(request).memories.set_enabled(identity, enabled=body.enabled)
+    return MemorySettingsResponse(
+        enabled=settings.enabled,
+        auto_write_enabled=False,
+        updated_at=settings.updated_at,
+    )
+
+
+@router.get("/memories", response_model=MemoryListResponse, tags=["memory"])
+async def list_memories(request: Request, identity: Identity) -> MemoryListResponse:
+    rows = await _runtime(request).memories.list_active(identity)
+    return MemoryListResponse(items=tuple(_memory_response(item) for item in rows))
+
+
+@router.post(
+    "/memories",
+    response_model=MemoryResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["memory"],
+)
+async def create_memory(
+    request: Request, identity: Identity, body: MemoryCreateRequest
+) -> MemoryResponse:
+    memory = await _runtime(request).memories.create_confirmed(
+        identity,
+        category=body.category,
+        key=body.key,
+        value=body.value,
+        source_turn_id=body.source_turn_id,
+        expires_at=body.expires_at,
+        explicitly_confirmed=body.explicitly_confirmed,
+    )
+    return _memory_response(memory)
+
+
+@router.patch("/memories/{memory_id}", response_model=MemoryResponse, tags=["memory"])
+async def correct_memory(
+    request: Request,
+    memory_id: str,
+    identity: Identity,
+    body: MemoryCorrectionRequest,
+) -> MemoryResponse:
+    memory = await _runtime(request).memories.correct(
+        identity,
+        memory_id,
+        value=body.value,
+        source_turn_id=body.source_turn_id,
+        expires_at=body.expires_at,
+        explicitly_confirmed=body.explicitly_confirmed,
+    )
+    return _memory_response(memory)
+
+
+@router.delete("/memories/{memory_id}", status_code=204, tags=["memory"])
+async def delete_memory(request: Request, memory_id: str, identity: Identity) -> None:
+    await _runtime(request).memories.delete(identity, memory_id)
 
 
 @router.delete("/sessions/{session_id}", status_code=204, tags=["sessions"])
@@ -302,7 +395,9 @@ async def retry_ingestion_task(
     return IngestionTaskResponse.model_validate(task.model_dump(mode="python"))
 
 
-async def _run_chat(request: Request, identity: IdentityContext, body: ChatRequest) -> ChatResponse:
+async def _begin_chat(
+    request: Request, identity: IdentityContext, body: ChatRequest
+) -> tuple[Runtime, SessionRecord, TurnClaim]:
     runtime = _runtime(request)
     await _rate_limit(
         runtime,
@@ -310,32 +405,119 @@ async def _run_chat(request: Request, identity: IdentityContext, body: ChatReque
         "chat",
         runtime.settings.chat_rate_limit_per_minute,
     )
+    input_assessment = await runtime.safety.inspect(body.query, trust_domain=TrustDomain.USER_INPUT)
+    await runtime.audit.record(
+        "safety.input",
+        {
+            "request_id": request.state.request_id,
+            "tenant_id": identity.tenant_id,
+            "user_id": identity.user_id,
+            "policy_version": input_assessment.policy_version,
+            "allowed": input_assessment.allowed,
+            "flags": list(input_assessment.flags),
+            "trust_domain": input_assessment.trust_domain.value,
+        },
+    )
+    if not input_assessment.allowed:
+        raise UnsafeOperationError("输入未通过安全策略")
     if body.session_id is None:
         record = await runtime.sessions.create(identity)
     else:
         record = await runtime.sessions.get(identity, body.session_id)
     if record.closed:
         raise ConflictError("会话已关闭")
+    claim = await runtime.sessions.begin_turn(
+        identity,
+        record.session_id,
+        client_turn_id=body.client_turn_id,
+        request_id=request.state.request_id,
+        query=body.query,
+    )
+    return runtime, record, claim
+
+
+async def _execute_chat_claim(
+    runtime: Runtime,
+    identity: IdentityContext,
+    body: ChatRequest,
+    record: SessionRecord,
+    claim: TurnClaim,
+    *,
+    event_sink: RunEventSink | None = None,
+) -> AgentExecution:
     try:
         with runtime.trace.span(
             "api.chat",
             {
-                "request_id": request.state.request_id,
+                "request_id": claim.request_id,
+                "run_id": claim.run_id,
                 "tenant_id": identity.tenant_id,
                 "session_id": record.session_id,
+                "stream": event_sink is not None,
             },
         ):
             async with asyncio.timeout(runtime.settings.generation_timeout_seconds + 5):
-                result = await runtime.orchestrator.run(
+                execution = await runtime.orchestrator.run(
                     identity,
-                    request_id=request.state.request_id,
+                    request_id=claim.request_id,
+                    run_id=claim.run_id,
+                    client_turn_id=claim.client_turn_id,
                     session_id=record.session_id,
                     query=body.query,
+                    history=claim.history,
+                    conversation_state=record.conversation_state,
+                    user_sequence=claim.user_sequence,
+                    event_sink=event_sink,
                 )
+                output_assessment = await runtime.safety.validate_answer(execution.result)
+                await runtime.audit.record(
+                    "safety.output",
+                    {
+                        "request_id": claim.request_id,
+                        "run_id": claim.run_id,
+                        "tenant_id": identity.tenant_id,
+                        "policy_version": output_assessment.policy_version,
+                        "allowed": output_assessment.allowed,
+                        "flags": list(output_assessment.flags),
+                        "trust_domain": output_assessment.trust_domain.value,
+                    },
+                )
+                if not output_assessment.allowed:
+                    raise UnsafeOperationError("输出未通过安全策略，已拒绝提交")
+    except asyncio.CancelledError:
+        await runtime.sessions.abort_turn(identity, claim, error_code="cancelled")
+        raise
     except TimeoutError as exc:
+        await runtime.sessions.abort_turn(identity, claim, error_code="timeout")
         raise OperationTimeoutError("agent") from exc
-    await runtime.sessions.append(identity, record.session_id, body.query, result)
-    return ChatResponse.model_validate(result.model_dump(mode="python"))
+    except Exception as exc:
+        await runtime.sessions.abort_turn(
+            identity,
+            claim,
+            error_code=getattr(getattr(exc, "code", None), "value", type(exc).__name__),
+        )
+        raise
+    await runtime.sessions.complete_turn(
+        identity,
+        claim,
+        execution.result,
+        conversation_state=execution.conversation_state,
+        context_manifest=execution.context_manifest,
+        generation_manifest=execution.generation_manifest,
+    )
+    return execution
+
+
+async def _run_chat(request: Request, identity: IdentityContext, body: ChatRequest) -> ChatResponse:
+    runtime, record, claim = await _begin_chat(request, identity, body)
+    if claim.disposition is TurnDisposition.REPLAY:
+        if claim.result is None:
+            raise ConflictError("已完成运行缺少持久化结果")
+        return ChatResponse.model_validate(claim.result.model_dump(mode="python"))
+    if claim.disposition is TurnDisposition.IN_PROGRESS:
+        raise ConflictError("相同 client_turn_id 的请求仍在处理中")
+    execution = await _execute_chat_claim(runtime, identity, body, record, claim)
+    return ChatResponse.model_validate(execution.result.model_dump(mode="python"))
 
 
 @router.post("/chat", response_model=ChatResponse, tags=["chat"])
@@ -343,83 +525,117 @@ async def chat(request: Request, identity: Identity, body: ChatRequest) -> ChatR
     return await _run_chat(request, identity, body)
 
 
-def _sse(event: str, data: dict[str, Any], *, event_id: str) -> str:
+def _sse(event: RunEvent) -> str:
+    data = {
+        "event_version": event.event_version,
+        "request_id": event.request_id,
+        "run_id": event.run_id,
+        "session_id": event.session_id,
+        "sequence": event.sequence,
+        **event.data,
+    }
     encoded = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-    return f"id: {event_id}\nevent: {event}\ndata: {encoded}\n\n"
+    return f"id: {event.run_id}:{event.sequence}\nevent: {event.event_type}\ndata: {encoded}\n\n"
 
 
 @router.post("/chat/stream", tags=["chat"])
 async def stream_chat(request: Request, identity: Identity, body: ChatRequest) -> StreamingResponse:
     async def events() -> AsyncIterator[str]:
-        sequence = 1
-        yield _sse(
-            "start",
-            {"request_id": request.state.request_id, "sequence": sequence},
-            event_id=f"{request.state.request_id}:{sequence}",
-        )
+        emitter: RunEventEmitter | None = None
+        run_task: asyncio.Task[AgentExecution] | None = None
         try:
-            result = await _run_chat(request, identity, body)
-            if await request.is_disconnected():
-                return
-            for offset in range(0, len(result.answer), 24):
-                sequence += 1
-                yield _sse(
-                    "delta",
-                    {
-                        "run_id": result.run_id,
-                        "sequence": sequence,
-                        "content": result.answer[offset : offset + 24],
-                    },
-                    event_id=f"{result.run_id}:{sequence}",
+            runtime, record, claim = await _begin_chat(request, identity, body)
+            emitter = RunEventEmitter(
+                request_id=claim.request_id,
+                run_id=claim.run_id,
+                session_id=record.session_id,
+            )
+            await emitter.emit("start", {"client_turn_id": claim.client_turn_id})
+            yield _sse(await emitter.get())
+
+            if claim.disposition is TurnDisposition.REPLAY:
+                if claim.result is None:
+                    raise ConflictError("已完成运行缺少持久化结果")
+                result = claim.result
+            elif claim.disposition is TurnDisposition.IN_PROGRESS:
+                raise ConflictError("相同 client_turn_id 的请求仍在处理中")
+            else:
+                run_task = asyncio.create_task(
+                    _execute_chat_claim(
+                        runtime,
+                        identity,
+                        body,
+                        record,
+                        claim,
+                        event_sink=emitter.emit,
+                    )
                 )
+                while not run_task.done():
+                    try:
+                        event = await asyncio.wait_for(emitter.get(), timeout=0.05)
+                    except TimeoutError:
+                        if await request.is_disconnected():
+                            run_task.cancel()
+                            with suppress(asyncio.CancelledError):
+                                await run_task
+                            return
+                    else:
+                        yield _sse(event)
+                execution = await run_task
+                while not emitter.empty():
+                    yield _sse(emitter.get_nowait())
+                result = execution.result
+
+            if emitter.delta_count == 0:
+                await emitter.emit("delta", {"content": result.answer})
+                yield _sse(await emitter.get())
             for citation in result.citations:
-                sequence += 1
-                yield _sse(
-                    "citation",
-                    {
-                        "run_id": result.run_id,
-                        "sequence": sequence,
-                        "citation": citation.model_dump(mode="json"),
-                    },
-                    event_id=f"{result.run_id}:{sequence}",
-                )
-            sequence += 1
-            yield _sse(
+                await emitter.emit("citation", {"citation": citation.model_dump(mode="json")})
+                yield _sse(await emitter.get())
+            await emitter.emit(
                 "status",
                 {
-                    "run_id": result.run_id,
-                    "sequence": sequence,
                     "status": result.status.value,
                     "intent": result.intent.value,
                     "source": result.source.value,
+                    "refusal_reason": result.refusal_reason,
+                    "open_questions": list(result.open_questions),
+                    "actions": list(result.actions),
                 },
-                event_id=f"{result.run_id}:{sequence}",
             )
-            sequence += 1
-            yield _sse(
-                "end",
-                {"run_id": result.run_id, "sequence": sequence},
-                event_id=f"{result.run_id}:{sequence}",
-            )
+            yield _sse(await emitter.get())
+            await emitter.emit("end")
+            yield _sse(await emitter.get())
         except asyncio.CancelledError:
+            if run_task is not None and not run_task.done():
+                run_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await run_task
             raise
         except Exception as exc:
-            sequence += 1
-            yield _sse(
+            if run_task is not None and not run_task.done():
+                run_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await run_task
+            if emitter is None:
+                fallback_id = request.state.request_id
+                emitter = RunEventEmitter(
+                    request_id=fallback_id,
+                    run_id=fallback_id,
+                    session_id=body.session_id or "unassigned",
+                )
+            while not emitter.empty():
+                yield _sse(emitter.get_nowait())
+            await emitter.emit(
                 "error",
                 {
-                    "sequence": sequence,
                     "error_code": getattr(getattr(exc, "code", None), "value", "stream_error"),
                     "message": redact_text(str(exc) or "流式回答失败"),
                 },
-                event_id=f"{request.state.request_id}:{sequence}",
             )
-            sequence += 1
-            yield _sse(
-                "end",
-                {"request_id": request.state.request_id, "sequence": sequence},
-                event_id=f"{request.state.request_id}:{sequence}",
-            )
+            yield _sse(await emitter.get())
+            await emitter.emit("end", {"ok": False})
+            yield _sse(await emitter.get())
 
     return StreamingResponse(
         events(),
@@ -452,6 +668,27 @@ async def retrieval_debug(
     )
 
 
+@router.get(
+    "/admin/knowledge-quality",
+    response_model=KnowledgeQualityResponse,
+    tags=["admin"],
+)
+async def knowledge_quality_report(
+    request: Request, identity: Identity
+) -> KnowledgeQualityResponse:
+    require_roles(identity, "admin", "knowledge_admin")
+    report = await _runtime(request).knowledge_quality.report(identity.tenant_id)
+    return KnowledgeQualityResponse(
+        report_version=report.report_version,
+        tenant_id=report.tenant_id,
+        issues=tuple(
+            KnowledgeIssueResponse.model_validate(item.model_dump(mode="python"))
+            for item in report.issues
+        ),
+        generated_at=report.generated_at,
+    )
+
+
 @router.post(
     "/approvals/fake-callback",
     response_model=ApprovalCallbackResponse,
@@ -476,7 +713,12 @@ async def fake_approval_callback(
     draft = await runtime.repository.get_draft(identity.tenant_id, body.draft_id)
     if draft is None:
         raise NotFoundError("审批草单不存在")
-    duplicate = body.request_id in runtime.approval_callbacks
+    resumed = await runtime.orchestrator.resume_approval(
+        identity,
+        draft_id=body.draft_id,
+        decision=body.decision,
+    )
+    duplicate = body.request_id in runtime.approval_callbacks or resumed.duplicate
     runtime.approval_callbacks.add(body.request_id)
     await runtime.audit.record(
         "approval.fake_callback",
@@ -485,6 +727,9 @@ async def fake_approval_callback(
             "draft_id": body.draft_id,
             "decision": body.decision,
             "duplicate": duplicate,
+            "resumed": True,
+            "run_id": resumed.run_id,
+            "recovery_source": resumed.recovery_source,
             "executed": False,
         },
     )
@@ -492,4 +737,8 @@ async def fake_approval_callback(
         request_id=body.request_id,
         accepted=True,
         duplicate=duplicate,
+        resumed=True,
+        run_id=resumed.run_id,
+        recovery_source=resumed.recovery_source,
+        final_answer=resumed.final_answer,
     )

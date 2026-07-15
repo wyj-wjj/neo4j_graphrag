@@ -37,6 +37,11 @@ class ValidationError(AppError):
         super().__init__(ErrorCode.VALIDATION, message, 422)
 
 
+class ConfigurationError(AppError):
+    def __init__(self, message: str) -> None:
+        super().__init__(ErrorCode.CONFIGURATION, message, 500)
+
+
 class AuthenticationError(AppError):
     def __init__(self, message: str = "身份验证失败") -> None:
         super().__init__(ErrorCode.AUTHENTICATION, message, 401)

@@ -10,6 +10,7 @@ from redis.asyncio import Redis
 
 from graphrag.domain.errors import DependencyError
 from graphrag.domain.state import AgentState
+from graphrag.domain.state_migrations import StateMigrationRegistry
 
 
 class RedisAdapter:
@@ -50,7 +51,16 @@ class RedisAdapter:
 
     async def get(self, tenant_id: str, session_id: str) -> AgentState | None:
         raw = await self.client.get(self._checkpoint_key(tenant_id, session_id))
-        return AgentState.model_validate_json(raw) if raw else None
+        if not raw:
+            return None
+        state = StateMigrationRegistry().load_json(raw)
+        if state.tenant_id != tenant_id or state.session_id != session_id:
+            raise DependencyError(
+                "redis",
+                "Checkpoint 身份边界不匹配，已拒绝恢复",
+                retryable=False,
+            )
+        return state
 
     async def delete(self, tenant_id: str, session_id: str) -> None:
         await self.client.delete(self._checkpoint_key(tenant_id, session_id))

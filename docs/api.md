@@ -17,6 +17,9 @@ dev/test 可调用 `POST /auth/dev-token` 获取短期测试 Token。staging/pro
 | `GET /sessions/{id}` | 会话详情 | 所有者或管理员 |
 | `GET /sessions/{id}/history` | 分页历史 | 所有者或管理员 |
 | `DELETE /sessions/{id}` | 关闭会话并清 Checkpoint | 所有者或管理员 |
+| `GET/POST /memories` | 查看或显式确认创建长期记忆 | 当前用户 |
+| `PATCH/DELETE /memories/{id}` | 纠正或删除长期记忆版本链 | 当前用户 |
+| `GET/PUT /memories/settings` | 查看、启用或禁用长期记忆 | 当前用户 |
 | `POST /documents` | 上传新文档并返回任务 | admin/knowledge_admin |
 | `GET /documents` | 文档列表 | admin/knowledge_admin |
 | `POST /documents/{id}/versions` | 上传新版本 | admin/knowledge_admin |
@@ -27,12 +30,15 @@ dev/test 可调用 `POST /auth/dev-token` 获取短期测试 Token。staging/pro
 | `POST /chat` | 完整回答 | 已登录 |
 | `POST /chat/stream` | SSE 回答 | 已登录 |
 | `POST /admin/retrieval-debug` | 分支/融合/引用调试 | admin |
+| `GET /admin/knowledge-quality` | 冲突/重复/过期/低质量只读报告 | admin/knowledge_admin |
 | `POST /approvals/fake-callback` | HMAC Fake 回调占位 | admin，dev/test only |
 
 ## SSE 事件
 
-顺序为 `start → delta* → citation* → status → end`；异常为 `error → end`。每个事件有递增 sequence
-和稳定事件 ID。阶段一断线会取消当前流，不支持片段回放；客户端读取会话历史后自行决定是否重试。
+顺序为 `start → route? → retrieving? → delta* → citation* → status → end`；异常为 `error → end`。
+模型 delta 直接来自 Provider，不是完整答案的事后切片。每个事件含 `event_version`、递增 sequence 和
+稳定事件 ID。断线会向下取消 Provider/Tool，未完成轮次不会提交 assistant 半成品；客户端读取会话历史
+后以同一 `client_turn_id` 安全重试。
 
 ## 错误
 
