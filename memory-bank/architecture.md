@@ -326,7 +326,9 @@ Milvus、Neo4j、收费模型或真实业务端点。
   `synthetic-data/generated/synthetic-commerce-v1/`，指标只代表合成生成器，不是生产 SLO。
 - 两个已物化大 Profile 由独立 GitHub Actions 工作流重新生成并校验固定 Manifest/Archive SHA-256，随后
   发布到不可变 Release 标签 `synthetic-commerce-v1-data-v3`。`fetch-release` 命令固定校验标签内资产、
-  安全解压、执行完整磁盘验证并原子安装；大文件本身仍不进入 Git 历史。
+  安全解压、执行完整磁盘验证并原子安装；发布归档为 `dev-standard` 445,969,395 字节（SHA-256
+  `4bcbc5f6…a61237`）和 `failure-lab` 197,895,810 字节（SHA-256 `877e7b22…b01ffd`），大文件本身仍不进入
+  Git 历史。
 
 尚未完成：在真实 MySQL/Milvus/Neo4j 组合复验上传与 Anchor Map；生产 Kafka Relay/消费者/DLQ；
 `staging-large` 的磁盘型核心事实和物化；真实依赖加载和全链路 GraphRAG 评测。当前事件能力是

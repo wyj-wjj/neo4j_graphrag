@@ -46,8 +46,14 @@ def _write_archive(archive: Path, *, profile: str, unsafe_member: str | None = N
 @pytest.mark.contract
 def test_release_assets_pin_the_materialized_profiles() -> None:
     assert set(RELEASE_ASSETS) == {"dev-standard", "failure-lab"}
-    assert RELEASE_ASSETS["dev-standard"].archive_size_bytes == 445_969_397
-    assert RELEASE_ASSETS["failure-lab"].archive_size_bytes == 197_895_809
+    assert RELEASE_ASSETS["dev-standard"].archive_size_bytes == 445_969_395
+    assert RELEASE_ASSETS["dev-standard"].archive_sha256 == (
+        "4bcbc5f6a0792a6383a4a5a3eaf78490084d72d18cb99758c8111b7d85a61237"
+    )
+    assert RELEASE_ASSETS["failure-lab"].archive_size_bytes == 197_895_810
+    assert RELEASE_ASSETS["failure-lab"].archive_sha256 == (
+        "877e7b225532d70972e46343b97c9079c379f47f1fe74a11acac23c461b01ffd"
+    )
     assert RELEASE_ASSETS["dev-standard"].manifest_sha256.startswith("5bbea393")
     assert RELEASE_ASSETS["failure-lab"].manifest_sha256.startswith("2c64f88d")
 

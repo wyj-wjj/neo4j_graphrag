@@ -115,8 +115,9 @@
   已提交 Fixture 保留为可验证的历史 v2（摘要 `fe860fa3…e489b`），验证器只兼容 v2/v3并拒绝未知版本。
 - 大数据分发链路已建立：固定 Release 标签 `synthetic-commerce-v1-data-v3`，确定性 tar/gzip 元数据、
   Archive/Manifest 双重 SHA-256、GitHub Actions 生成与发布门禁，以及本地 `fetch-release` 安全下载、
-  全量验证和原子安装。`dev-standard` 压缩包 445,969,397 字节，`failure-lab` 压缩包
-  197,895,809 字节；大文件继续保持在 Git 历史之外。
+  全量验证和原子安装。GitHub 发布的 `dev-standard` 压缩包 445,969,395 字节（SHA-256
+  `4bcbc5f6…a61237`），`failure-lab` 压缩包 197,895,810 字节（SHA-256 `877e7b22…b01ffd`）；大文件继续
+  保持在 Git 历史之外。
 
 ## 本地环境限制与 CI 覆盖
 

@@ -36,15 +36,15 @@ RELEASE_ASSETS: Final[dict[str, ReleaseAsset]] = {
     "dev-standard": ReleaseAsset(
         profile="dev-standard",
         filename="synthetic-commerce-v1-dev-standard.tar.gz",
-        archive_sha256="d1f94aa46b8e1255f57250e8cbd17d398ddb111ef2c24d022b1126d76c5e7429",
-        archive_size_bytes=445_969_397,
+        archive_sha256="4bcbc5f6a0792a6383a4a5a3eaf78490084d72d18cb99758c8111b7d85a61237",
+        archive_size_bytes=445_969_395,
         manifest_sha256="5bbea39339499703796fe5d9d01fdc8541f4414d11ae3b6f3ad65f30baef7fe2",
     ),
     "failure-lab": ReleaseAsset(
         profile="failure-lab",
         filename="synthetic-commerce-v1-failure-lab.tar.gz",
-        archive_sha256="be8d4b59664db4a77e8aaed985cac4b3d9e2194d7be9e02ba594fe0f601e27e0",
-        archive_size_bytes=197_895_809,
+        archive_sha256="877e7b225532d70972e46343b97c9079c379f47f1fe74a11acac23c461b01ffd",
+        archive_size_bytes=197_895_810,
         manifest_sha256="2c64f88dc89625a4b44f504e62c7730cfe6caad003a365c19ac34f1b55d98a60",
     ),
 }
