@@ -19,6 +19,7 @@ test('upload, ingest, cite and navigate the complete workbench', async ({page}) 
   })
   await page.getByRole('button', {name: '创建入库任务'}).click()
   await expect(page.getByText('状态：completed')).toBeVisible({timeout: 15_000})
+  await expect(page.getByRole('progressbar', {name: '文档入库任务进度'})).toBeVisible()
   await expectNoSeriousAccessibilityIssues(page)
 
   await page.goto('/chat')

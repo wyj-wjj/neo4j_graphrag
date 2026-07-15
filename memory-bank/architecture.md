@@ -25,7 +25,7 @@ FastAPI 模块化单体
          ├── MySQL 8.4 / SQLAlchemy / Alembic / aiomysql
          ├── Redis 8.2 / LangGraph Redis Checkpointer
          ├── Milvus 2.6 / COSINE + HNSW
-         ├── Neo4j 5.26 / tenant-scoped bounded traversal
+         ├── Neo4j 5.26.28 / tenant-scoped bounded traversal
          ├── Bailian OpenAI-compatible model, Embedding, OCR, Rerank
          └── LocalObjectStore（阶段二可替换 S3）
 ```
@@ -156,8 +156,8 @@ OpenAPI 固化在 `openapi.json`，前端 DTO 由它生成。React 使用路由�
 
 - 后端：uv 冻结安装、Ruff、mypy、pytest/coverage、Golden Set、pip-audit。
 - 前端：pnpm 冻结安装、ESLint/TypeScript、Vitest、Vite build、Playwright + axe。
-- 真实依赖：Compose 启动 MySQL/Redis/Milvus/Neo4j，执行迁移与 Adapter 集成测试。
-- 镜像：后端与非 root Nginx 多阶段构建，Trivy 阻断已修复的 Critical 漏洞。
+- 真实依赖：Compose 使用 `neo4j:5.26.28-community` 启动 MySQL/Redis/Milvus/Neo4j，执行迁移与 Adapter 集成测试。
+- 镜像：后端与非 root Nginx 多阶段构建，Trivy Action 固定为 `v0.33.1`，阻断已修复的 Critical 漏洞。
 - Secret：gitleaks。
 
 Compose 默认只启动基础依赖；`--profile app` 加入迁移、后端和前端。阶段二 Kafka 不在 Compose 中。

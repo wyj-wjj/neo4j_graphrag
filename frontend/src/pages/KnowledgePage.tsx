@@ -59,7 +59,7 @@ export default function KnowledgePage() {
         </Upload.Dragger>
         <Button type="primary" onClick={submit} loading={mutation.isPending} disabled={!file || !title.trim()} className="actions">创建入库任务</Button>
         {mutation.isError && <Alert type="error" message={mutation.error.message} showIcon />}
-        {currentTask && <Card size="small" title={`任务 ${currentTask.task_id}`}><Progress percent={currentTask.status === 'completed' ? 100 : 20} status={currentTask.status.includes('failed') ? 'exception' : 'active'} /><Typography.Text>状态：{currentTask.status}</Typography.Text></Card>}
+        {currentTask && <Card size="small" title={`任务 ${currentTask.task_id}`}><Progress aria-label="文档入库任务进度" percent={currentTask.status === 'completed' ? 100 : 20} status={currentTask.status.includes('failed') ? 'exception' : 'active'} /><Typography.Text>状态：{currentTask.status}</Typography.Text></Card>}
       </Card>
       <Card title="文档与版本" className="answer-card">
         {documents.isError && <Alert type="error" message={documents.error.message} showIcon />}

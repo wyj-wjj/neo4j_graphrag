@@ -26,7 +26,7 @@
 | ORM/迁移 | SQLAlchemy + Alembic + aiomysql | SQLAlchemy `>=2.0,<2.2` | 异步数据访问与可回滚迁移；规避 asyncmy 未修复 SQL 注入漏洞 |
 | 身份校验 | PyJWT + cryptography | PyJWT `>=2.10,<3` | JWT、JWKS、角色与租户上下文 |
 | 向量数据库 | Milvus | Server `2.6.14`；PyMilvus `2.6.11` | Dense Vector 召回 |
-| 图数据库 | Neo4j Community | Server `5.26 LTS`；Python Driver `>=6.2,<7` | 实体直达与 1～2 跳扩展 |
+| 图数据库 | Neo4j Community | Server `5.26.28 LTS`；Python Driver `>=6.2,<7` | 实体直达与 1～2 跳扩展 |
 | 状态与缓存 | Redis | Server `8.2.x`；redis-py `>=8,<9` | Checkpoint、会话、缓存、锁 |
 | LangGraph 持久化 | langgraph-checkpoint-redis | `>=0.5,<0.6` | Agent 状态持久化与恢复 |
 | LLM/Embedding | 阿里云百炼 | 配置化模型名 | L2/L3、Embedding、OCR、Rerank |
@@ -248,7 +248,7 @@ Milvus 只做粗粒度租户和状态预过滤；最终权限和有效期必须�
 
 ### 5.3 Neo4j 5.26 LTS
 
-使用 Neo4j Community `5.26 LTS`，不使用快速变化的 `2026.x` 当前版本作为阶段一基线。Python 使用官方 `neo4j` 包 6.2 系列，不安装已弃用的 `neo4j-driver` 包名。
+使用 Neo4j Community `5.26 LTS`，Compose 固定到可用的 `neo4j:5.26.28-community` 镜像，不使用快速变化的 `2026.x` 当前版本作为阶段一基线。Python 使用官方 `neo4j` 包 6.2 系列，不安装已弃用的 `neo4j-driver` 包名。
 
 使用异步 Driver，并显式指定数据库和超时。图谱至少包含：
 

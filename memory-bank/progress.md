@@ -9,16 +9,16 @@
 | --- | --- | --- |
 | 0.1–0.5 约束基线 | 完成 | 必读文档、范围、密钥风险与记录格式已核对 |
 | 1.1–2.9 工程与契约 | 完成 | 冻结安装、配置负例、Port/Fake、类型与契约测试 |
-| 3.1–3.9 MySQL 真理源 | 代码完成/真实 MySQL 待 CI | SQLite 仓库测试；迁移 upgrade/diff/downgrade/upgrade |
-| 4.1–4.5 Redis | 代码完成/真实 Redis 待 CI | Fake Adapter 契约；Redis 8 Compose 与真实 Adapter CI |
-| 5.1–6.5 Milvus/Neo4j | 代码完成/真实服务待 CI | Schema、维度、租户、跳数、CRUD Fake 契约；真实 Adapter CI |
+| 3.1–3.9 MySQL 真理源 | 代码完成/真实 MySQL 待 CI 重验 | SQLite 仓库测试；迁移 upgrade/diff/downgrade/upgrade |
+| 4.1–4.5 Redis | 代码完成/真实 Redis 待 CI 重验 | Fake Adapter 契约；Redis 8 Compose 与真实 Adapter CI |
+| 5.1–6.5 Milvus/Neo4j | 代码完成/真实服务待 CI 重验 | Neo4j 镜像已修正为 `5.26.28-community`；真实 Adapter CI 待重验 |
 | 7.1–7.6 百炼 Provider | 完成 | httpx/OpenAI 兼容、结构化输出、流、Embedding、OCR、Rerank Fake 测试 |
 | 8.1–9.7 入库与一致性 | 完成 | 格式解析、父子分块、部分失败恢复、版本激活和下线验收 |
 | 10.0–10.11 GraphRAG | 完成 | 并发/RRF/ACL/Rerank/引用/拒答；20 条 Golden Set 全门槛通过 |
 | 11.1–11.11 Agent/Tool | 完成 | 全 Agent 路径、Tool 审计、Fake 边界、Checkpoint 持久化 |
 | 12.1–12.9 API | 完成 | OpenAPI、JWT/RBAC、REST、SSE、回调、统一错误验收 |
-| 13.1–13.8 前端 | 代码完成/浏览器待 CI | ESLint+TS、2 个 Vitest、生产构建；Playwright 下载受限 |
-| 14.1–14.12 交付 | 代码完成/容器待 CI | Trace、脱敏、安全、故障、评测、CI、镜像、文档 |
+| 13.1–13.8 前端 | 无障碍修复完成/浏览器待 CI 重验 | Progress 可访问名称、7.00:1 占位符对比度；ESLint、Vitest、构建通过 |
+| 14.1–14.12 交付 | CI 首轮问题已修复/待重验 | Neo4j 镜像、Trivy Action、axe 问题已修复，等待完整 CI |
 
 ## 已完成实现
 
@@ -47,16 +47,20 @@
 - 前端：ESLint/TypeScript 通过，Vitest 2 通过，Vite 生产构建通过；Playwright 已确认后端与
   Vite 能自动启动，但浏览器可执行文件因下载受限而缺失。
 - Compose：YAML 结构解析通过，共 8 个服务。
+- GitHub CI 首轮确认 backend、secrets 通过；发现并修复 Neo4j 不存在的镜像标签、Trivy Action
+  缺少 `v` 前缀，以及 Progress 无可访问名称和占位文字对比度不足。
+- CI 修复本地验证：Compose/Workflow YAML 与固定版本断言通过；占位文字对比度为 7.00:1；
+  Playwright 成功收集 1 条端到端测试，完整浏览器执行交由 CI 重验。
 
 ## 环境阻塞与补跑入口
 
-1. 当前环境没有 `docker`/`podman`，未本地执行 MySQL 8.4、Redis 8.2、Milvus 2.6、Neo4j 5.26、
-   镜像构建、容器健康检查和 Trivy。GitHub Actions `real-integration` 与 `images` Job 是强制补跑入口。
+1. 当前环境没有 `docker`/`podman`，未本地执行 MySQL 8.4、Redis 8.2、Milvus 2.6、Neo4j 5.26.28、
+   镜像构建、容器健康检查和 Trivy。修复后的 GitHub Actions `real-integration` 与 `images` Job 是强制补跑入口。
 2. Playwright Chromium 下载端返回空或截断归档，未本地运行浏览器 E2E 与 axe；CI 会安装 Chromium 后执行。
 3. 未使用真实百炼密钥，符合 CI 禁止收费模型要求；生产前必须运行受控云模型评测与容量测试。
 
 ## 下一步
 
-- 在有 Docker 和公网浏览器镜像的 runner 推送分支并观察全部 CI Job。
+- 推送 CI 修复提交，并观察 GitHub Actions 第二轮全部 Job。
 - 只有 `backend`、`frontend`、`real-integration`、`images`、`secrets` 全绿后，才能把阶段一外部验收标记为完全完成。
 - 生产部署前提供真实 JWKS、轮换后的数据库/Redis/Neo4j/MinIO 密码和百炼密钥，不得提交这些值。

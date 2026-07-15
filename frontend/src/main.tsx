@@ -12,7 +12,12 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ConfigProvider theme={{algorithm: theme.defaultAlgorithm, token: {colorPrimary: '#2563eb'}}}>
+    <ConfigProvider
+      theme={{
+        algorithm: theme.defaultAlgorithm,
+        token: {colorPrimary: '#2563eb', colorTextPlaceholder: '#595959'},
+      }}
+    >
       <AntApp>
         <QueryClientProvider client={queryClient}>
           <BrowserRouter>
