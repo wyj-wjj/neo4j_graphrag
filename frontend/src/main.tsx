@@ -17,7 +17,6 @@ createRoot(document.getElementById('root')!).render(
         algorithm: theme.defaultAlgorithm,
         token: {
           colorPrimary: '#2563eb',
-          colorSuccessText: '#135200',
           colorTextPlaceholder: '#595959',
         },
       }}

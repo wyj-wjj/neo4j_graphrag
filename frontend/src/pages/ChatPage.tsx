@@ -43,7 +43,7 @@ export default function ChatPage() {
       <Card className="answer-card" aria-live="polite">
         {answer || <Typography.Text type="secondary">回答将在这里增量显示。知识回答必须带引用；业务结果会明确标记 Fake。</Typography.Text>}
         <Space wrap className="status-row">
-          {status !== 'idle' && <Tag>{status}</Tag>}{intent && <Tag color="blue">{intent}</Tag>}{source && <Tag color={source === 'fake' ? 'orange' : 'green'}>{source}</Tag>}
+          {status !== 'idle' && <Tag>{status}</Tag>}{intent && <Tag color="blue">{intent}</Tag>}{source && <Tag color={source === 'fake' ? 'orange' : 'green'} style={{color: source === 'fake' ? '#873800' : '#135200'}}>{source}</Tag>}
         </Space>
         {error && <Alert type="error" showIcon message={error} />}
       </Card>
