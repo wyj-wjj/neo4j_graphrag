@@ -233,6 +233,8 @@ DashScope SDK 仅用于 OpenAI 兼容接口没有覆盖的特定多模态能力�
 
 使用 Milvus `2.6.14` Standalone 和匹配的 PyMilvus `2.6.11`。Compose 同步采用该版本官方
 Standalone 配套的 etcd `3.5.25`、MinIO `RELEASE.2024-12-18T13-15-44Z` 与 Woodpecker MQ。
+MinIO 凭据只从部署环境注入，并通过 `MINIO_ACCESS_KEY_ID`、`MINIO_SECRET_ACCESS_KEY` 同步传给
+Milvus；禁止依赖 Milvus 或 MinIO 的默认凭据。
 不采用 `3.0-beta`，因为项目目标是稳定 MVP，不需要测试版存储架构。
 
 Collection 建议：

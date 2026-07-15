@@ -157,7 +157,8 @@ OpenAPI 固化在 `openapi.json`，前端 DTO 由它生成。React 使用路由�
 - 后端：uv 冻结安装、Ruff、mypy、pytest/coverage、Golden Set、pip-audit。
 - 前端：pnpm 冻结安装、ESLint/TypeScript、Vitest、Vite build、Playwright + axe。
 - 真实依赖：Compose 使用 `neo4j:5.26.28-community`，并按 Milvus 2.6.14 官方 Standalone
-  组合固定 etcd 3.5.25、MinIO 2024-12-18 和 Woodpecker MQ，执行迁移与 Adapter 集成测试。
+  组合固定 etcd 3.5.25、MinIO 2024-12-18 和 Woodpecker MQ；Milvus 与 MinIO 通过环境变量注入
+  同一组非默认凭据，执行迁移与 Adapter 集成测试。
 - 镜像：后端与非 root Nginx 多阶段构建，Trivy Action 固定为 `v0.36.0`，阻断已修复的 Critical 漏洞。
 - Secret：gitleaks。
 

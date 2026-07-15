@@ -11,14 +11,14 @@
 | 1.1–2.9 工程与契约 | 完成 | 冻结安装、配置负例、Port/Fake、类型与契约测试 |
 | 3.1–3.9 MySQL 真理源 | 代码完成/真实 MySQL 待 CI 重验 | SQLite 仓库测试；迁移 upgrade/diff/downgrade/upgrade |
 | 4.1–4.5 Redis | 代码完成/真实 Redis 待 CI 重验 | Fake Adapter 契约；Redis 8 Compose 与真实 Adapter CI |
-| 5.1–6.5 Milvus/Neo4j | 代码完成/真实服务待 CI 重验 | Neo4j 镜像已修正为 `5.26.28-community`；真实 Adapter CI 待重验 |
+| 5.1–6.5 Milvus/Neo4j | CI 最终修复已应用/待重验 | Neo4j 镜像与 Milvus-MinIO 凭据链路已修正；真实 Adapter CI 待重验 |
 | 7.1–7.6 百炼 Provider | 完成 | httpx/OpenAI 兼容、结构化输出、流、Embedding、OCR、Rerank Fake 测试 |
 | 8.1–9.7 入库与一致性 | 完成 | 格式解析、父子分块、部分失败恢复、版本激活和下线验收 |
 | 10.0–10.11 GraphRAG | 完成 | 并发/RRF/ACL/Rerank/引用/拒答；20 条 Golden Set 全门槛通过 |
 | 11.1–11.11 Agent/Tool | 完成 | 全 Agent 路径、Tool 审计、Fake 边界、Checkpoint 持久化 |
 | 12.1–12.9 API | 完成 | OpenAPI、JWT/RBAC、REST、SSE、回调、统一错误验收 |
-| 13.1–13.8 前端 | 无障碍修复完成/浏览器待 CI 重验 | Progress 可访问名称、7.00:1 占位符对比度；ESLint、Vitest、构建通过 |
-| 14.1–14.12 交付 | CI 第二轮问题已修复/待重验 | Milvus 官方配套、Trivy Action 与 E2E 总超时已修复 |
+| 13.1–13.8 前端 | E2E 最终断言已修复/待重验 | 主流程已执行到引用答案；精确定位 `[C1]` 标记，避免严格模式歧义 |
+| 14.1–14.12 交付 | CI 最终修复已应用/待重验 | Milvus 凭据链路、Trivy 扫描与 E2E 均已完成针对性修复 |
 
 ## 已完成实现
 
@@ -55,6 +55,9 @@
   Standalone 配套配置偏差，以及旧 Trivy Action 内置二进制安装失败。修复保持测试断言和安全门槛不变。
 - GitHub CI 第三轮确认 backend、images、secrets 通过，两次 Trivy 镜像扫描均通过。发送按钮补充
   稳定可访问名称和组件回归测试；真实依赖启动失败时增加 Milvus/etcd/MinIO 容器日志诊断。
+- GitHub CI 第四轮中，浏览器 E2E 已完成上传、入库、提问并获得引用答案，仅剩 `[C1]` 同时匹配
+  答案卡片和引用标记的严格选择器歧义；现已改为精确匹配。Milvus 诊断日志确认其仍使用默认
+  MinIO 凭据，现已按 Milvus 2.6.14 官方配置键注入与 MinIO 相同的环境凭据。
 
 ## 环境阻塞与补跑入口
 
@@ -65,6 +68,6 @@
 
 ## 下一步
 
-- 推送 CI 修复提交，并观察 GitHub Actions 第二轮全部 Job。
+- 推送最终 CI 修复提交，并观察 GitHub Actions 全部 Job。
 - 只有 `backend`、`frontend`、`real-integration`、`images`、`secrets` 全绿后，才能把阶段一外部验收标记为完全完成。
 - 生产部署前提供真实 JWKS、轮换后的数据库/Redis/Neo4j/MinIO 密码和百炼密钥，不得提交这些值。
