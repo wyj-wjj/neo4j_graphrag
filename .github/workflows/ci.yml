@@ -1,0 +1,95 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with: {version: "0.9.25", enable-cache: true}
+      - run: uv sync --frozen --group dev
+      - run: uv run ruff format --check src tests scripts alembic
+      - run: uv run ruff check src tests scripts alembic
+      - run: uv run mypy src
+      - run: uv run pytest -q --cov=graphrag --cov-report=xml
+      - run: uv run python scripts/evaluate.py
+      - run: uv run pip-audit
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: {version: "11.7.0"}
+      - uses: actions/setup-node@v4
+        with: {node-version: "24", cache: pnpm, cache-dependency-path: frontend/pnpm-lock.yaml}
+      - uses: astral-sh/setup-uv@v7
+        with: {version: "0.9.25", enable-cache: true}
+      - run: uv sync --frozen --group dev
+      - run: pnpm --dir frontend install --frozen-lockfile
+      - run: pnpm --dir frontend lint
+      - run: pnpm --dir frontend test
+      - run: pnpm --dir frontend build
+      - run: pnpm --dir frontend exec playwright install --with-deps chromium
+      - run: pnpm --dir frontend test:e2e
+
+  real-integration:
+    runs-on: ubuntu-latest
+    env:
+      MYSQL_APP_PASSWORD: integration-app-password
+      MYSQL_ROOT_PASSWORD: integration-root-password
+      REDIS_PASSWORD: integration-redis-password
+      NEO4J_PASSWORD: integration-neo4j-password
+      MINIO_ROOT_USER: integration-minio
+      MINIO_ROOT_PASSWORD: integration-minio-password
+      TEST_DATABASE_URL: mysql+aiomysql://app_user:integration-app-password@127.0.0.1:3306/enterprise_agent_db
+      TEST_REDIS_URL: redis://:integration-redis-password@127.0.0.1:6379/0
+      TEST_MILVUS_URI: http://127.0.0.1:19530
+      TEST_NEO4J_URI: bolt://127.0.0.1:7687
+      TEST_NEO4J_PASSWORD: integration-neo4j-password
+      RUN_REAL_INTEGRATION: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with: {version: "0.9.25", enable-cache: true}
+      - run: uv sync --frozen --group dev
+      - run: docker compose --profile mysql up -d --wait mysql redis neo4j milvus
+      - run: DATABASE_URL="$TEST_DATABASE_URL" uv run alembic upgrade head
+      - run: uv run pytest -q tests/integration/test_real_adapters.py
+      - if: always()
+        run: docker compose --profile mysql down -v
+
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t graphrag-backend:ci .
+      - run: docker build -t graphrag-frontend:ci frontend
+      - uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: graphrag-backend:ci
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: graphrag-frontend:ci
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -2,6 +2,7 @@
 
 > 基于 `enterprise_multi_agent_architecture.md` 企业级多智能体架构方案的落地方案。
 > 本文档总结当前环境状态、缺失组件部署方式、以及阶段一 MVP 的边界范围。
+> 本文件同时作为项目的权威设计文档；项目不再单独维护 `design-document.md`。
 
 ---
 
@@ -26,15 +27,15 @@
 | #  | 组件                   | 状态                | 部署方式            | 备注                                                                   |
 | :- | :--------------------- | :------------------ | :------------------ | :--------------------------------------------------------------------- |
 | 1  | **MySQL**        | ✅ 已就绪           | 本地直装（后续服务器上通过宝塔管理） | 需创建库 `enterprise_agent_db`，开启 Binlog（为阶段二准备） |
-| 2  | **Milvus**       | ✅ 已就绪           | Docker              | 端口 19530，Collection:`weview_content_chunks`                       |
+| 2  | **Milvus**       | ✅ 已就绪           | Docker              | 端口 19530；阶段一新建隔离的版本化 Collection：`weview_content_chunks_v1`，不得覆盖已有 Collection |
 | 3  | **Neo4j**        | ✅ 已就绪           | Docker              | Bolt 7687，Web 7474                                                    |
-| 4  | **Redis**        | ✅ 已就绪           | Docker              | 密码: `2001612wyj`，端口 6379，AOF 持久化已开启                     |
+| 4  | **Redis**        | ✅ 已就绪           | Docker              | 密码通过 `.env` 注入，端口 6379，AOF 持久化已开启                   |
 | 5  | **阿里百炼 LLM** | ✅ 已配置           | 云 API              | L3:`qwen-plus`，L2: `qwen-turbo`，Embedding: `text-embedding-v4` |
 | 6  | **Langfuse**     | ✅ 已配置           | Cloud 免费版        | 密钥已写入 `.env`                                                    |
 | 7  | **Kafka**        | ⏸ 推迟到阶段二     | Docker              | 阶段一走同步模式，无需消息队列                                         |
 | 8  | **审批流通知**   | ⏸ 推迟到阶段二     | 企微/SMTP           | 阶段一无写操作，无审批流需求                                           |
 | 9  | **外部业务 API** | ⏸ 阶段一用 Fake    | Mock 实现           | 阶段二接入真实 Order/Logistics/Refund 系统                             |
-| 10 | **对象存储**     | ⏸ 阶段一用本地磁盘 | 本地 `./uploads/` | 阶段二文件量大后再上 MinIO/OSS                                         |
+| 10 | **对象存储**     | ⏸ 阶段一用本地磁盘 | 本地 `./data/uploads/` | 阶段二文件量大后再上 MinIO/OSS                                      |
 
 ---
 
@@ -42,7 +43,7 @@
 
 ### 1. ~~启动 Redis~~ ✅ 已完成
 
-Redis 已在 Docker 中部署并运行，密码: `2001612wyj`，AOF 持久化已开启。
+Redis 已在 Docker 中部署并运行，密码通过 `.env` 注入，AOF 持久化已开启。
 
 ### 2. 在 MySQL 中创建数据库
 
@@ -66,7 +67,7 @@ mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS enterprise_agent_db DEFAULT C
 
 宝塔面板 → 数据库 → 添加数据库：
 - 数据库名：`enterprise_agent_db`
-- 用户名/密码：与 `.env` 中 `DATABASE_URL` 一致（`root / 2001612`）
+- 用户名/密码：与 `.env` 中 `DATABASE_URL` 一致（禁止在文档中记录真实凭据）
 
 ### 3. 开启 MySQL Binlog（为阶段二准备）
 
@@ -105,9 +106,9 @@ server-id=1
 from langfuse.langchain import CallbackHandler
 
 langfuse_handler = CallbackHandler(
-    public_key="pk-lf-xxx",
-    secret_key="sk-lf-xxx",
-    host="https://cloud.langfuse.com"
+    public_key="通过环境变量注入",
+    secret_key="通过环境变量注入",
+    host="Langfuse 部署地址"
 )
 
 # LangGraph 调用时传入
@@ -146,7 +147,7 @@ def ingest_chunk(content):
 
 审批流（Human-in-the-loop）的典型场景：用户申请退款 → 生成草单 → 挂起 → 主管在企微审批 → 继续执行。
 
-阶段一 MVP 只做只读的知识问答（检索 → 生成），不涉及退款、改地址等写操作，因此不需要审批流和企微/邮件通知。
+阶段一对外只提供无真实副作用的能力，不执行退款、改地址等真实业务写操作，因此不需要真实审批流和企微/邮件通知。为验证阶段二契约，阶段一允许在 MySQL 中持久化明确标记为 `fake` 的改地址、催单、退款草单和人工工单；这些记录不得调用外部业务系统。
 
 ### 4.5 为什么外部业务 API 用 Fake
 
@@ -161,7 +162,7 @@ class FakeOrderService:
 # 阶段二：真实实现
 class RealOrderService:
     def query_order(self, order_id):
-        return requests.get(f"https://order-api.xxx.com/orders/{order_id}")
+        return requests.get(f"订单服务地址/orders/{order_id}")
 ```
 
 ### 4.6 为什么对象存储用本地文件系统
@@ -169,7 +170,7 @@ class RealOrderService:
 文档解析管道需要存储原始文件（PDF/Word/图片）。阶段一只有单机部署、文件量小，直接用本地目录：
 
 ```python
-UPLOAD_DIR = "./uploads"
+UPLOAD_DIR = "./data/uploads"
 ```
 
 阶段二多实例部署、文件量大时，上 MinIO（Docker 一行命令）：
@@ -309,10 +310,12 @@ Agent 之间**不直接通信**，只通过共享 `AgentState` 间接协作：
 | Supervisor 路由 + 循环控制 | ✅     | —     |
 | KB / FAQ / Escalation 全功能 | ✅   | —     |
 | Order / Logistics / Refund 骨架 | ✅  | —     |
-| 写操作（退款/改地址）      | ❌     | ✅     |
+| 真实外部写操作（退款/改地址） | ❌  | ✅     |
+| 本地 Fake 草单与工单       | ✅     | —      |
 | Human-in-the-loop 审批     | ❌     | ✅     |
 | 异步数据同步（Kafka）      | ❌     | ✅     |
-| 多租户隔离                 | ❌     | ✅     |
+| 租户字段与强制隔离校验     | ✅     | —      |
+| 多租户管理、配额与自助开通 | ❌     | ✅     |
 | 微服务拆分                 | ❌     | ✅     |
 | 高可用/灾备                | ❌     | ✅     |
 
@@ -327,7 +330,79 @@ Agent 之间**不直接通信**，只通过共享 `AgentState` 间接协作：
 
 ---
 
-## 七、最终检查清单
+## 七、已确认的实施决策与验收基线
+
+以下决策是阶段一实施的固定边界，除非用户明确修改，否则 AI 开发者不得自行改变。
+
+### 7.1 交付与运行边界
+
+- 阶段一包含后端、React 前端、Docker 镜像、GitHub Actions CI 和本地一键验收流程。
+- 阶段一只保证本地与 CI 可重复运行，不包含真实服务器上线、域名、证书或生产流量切换。
+- 当前开发基线为 Windows 主机配合 WSL2、Docker Desktop 和本地 MySQL；应用与脚本优先在 Linux/WSL2 环境执行。
+- 所有测试只能创建和清理名称明确带 `test` 或版本后缀的专用资源，不得删除、迁移或覆盖来源不明的数据库、Collection、图数据、Redis Key 或文件。
+
+### 7.2 租户、身份与 Fake 能力
+
+- 阶段一只启用一个 `default` 租户，但数据库、Milvus、Neo4j、Redis、Checkpoint、API 和审计从第一天携带并强制校验 `tenant_id`。
+- 阶段一不实现租户管理后台、配额、自助开通和跨租户运营能力；这些属于阶段二。
+- 后端负责验证 JWT 并构造租户、用户和角色上下文。dev/test 可提供本地测试身份签发器；生产配置必须使用外部 JWT/JWKS，且必须拒绝测试身份。
+- 阶段一不实现完整注册、密码登录和找回密码系统。
+- Order、Logistics、Refund 和 Escalation 可以持久化 Fake 草单或工单，但必须带 `fake` 来源、幂等键和审计信息，且不得调用真实外部系统。
+
+### 7.3 数据、文件与外部服务
+
+- 没有真实业务数据时，使用完全虚构、版本化的中文电商知识库，覆盖商品、发票、退换货、物流、会员、售后、权限、多跳关系和攻击样本。
+- 主要交互语言为中文，英文输入允许正常处理；时间统一以 UTC 存储，前端默认按 `Asia/Shanghai` 展示并允许配置。
+- 阶段一支持 PDF、DOCX、XLSX、PPTX、HTML、TXT、Markdown、PNG 和 JPEG。单文件上限 25 MB，文档最多 200 页；旧格式 DOC、XLS、PPT 不支持。
+- 本地对象存储统一使用 `./data/uploads/`；数据库只保存对象 Key，不保存机器绝对路径。
+- 阶段二真实业务 API 尚无权威契约时，阶段一使用供应商无关的 Order、Logistics、Refund Port；未来由 Adapter 完成真实 API 字段映射。
+- Langfuse Cloud 默认只接收脱敏标识、模型、耗时、Token、候选 ID 和分数，不上传完整问题、回答或知识原文；测试环境默认关闭外发。
+
+### 7.4 入库执行方式
+
+- 上传 API 创建持久化任务后立即返回，不在请求中执行完整解析与索引。
+- 阶段一使用同一部署单元内的受控任务执行器，从 MySQL 领取任务并限制并发；进程重启后必须能继续领取或安全重试未完成任务。
+- 阶段一的单个入库任务仍按 MySQL 真理源、Milvus 向量索引、Neo4j 图谱索引的顺序协调，不部署 Kafka。
+- 阶段二以 Kafka Worker 替换任务领取和事件传输时，不改变事件 Envelope、Handler、Port 和任务状态机。
+
+### 7.5 阶段一量化验收门槛
+
+| 指标 | 最低门槛 |
+| :--- | :--- |
+| Supervisor 路由准确率 | ≥ 95% |
+| Recall@20 | ≥ 90% |
+| MRR@20 | ≥ 0.80 |
+| NDCG@10 | ≥ 0.85 |
+| 引用正确率 | ≥ 98% |
+| 有证据回答 Faithfulness | ≥ 95% |
+| 无答案正确拒答率 | ≥ 95% |
+| 越权或跨租户内容进入上下文 | 0 |
+| 未审批的真实业务写操作 | 0 |
+
+CI 必须使用确定性 Fake 模型执行硬门禁。真实云模型的延迟和可用性受公网影响，阶段一记录 P50、P95、首 Token 时间和总耗时作为观测指标，但不作为阻塞代码合并的硬 CI 门禁。
+
+### 7.6 FAQ、分块、图谱与检索默认值
+
+- FAQ 以 MySQL 中版本化的 `faq_items` 为真理源，保存租户、规则、标准答案、状态、有效期和版本；语义匹配使用独立的版本化 Milvus Collection，最终命中仍回 MySQL 复核。
+- FAQ 精确规则命中可直接回答；语义相似度初始阈值为 0.88。低于阈值或出现冲突时转入 KB，不直接返回标准答案。
+- Supervisor 结构化路由的初始置信度阈值为 0.75；低于阈值时澄清或安全升级，不随机选择业务 Agent。
+- 检索小块目标长度为 450 个中文字符，硬上限 600，重叠比例 12%；父块目标范围为 1200～1800 个中文字符。表格按结构单元处理，不强行套用字符切分。
+- Dense、Graph 和可选 Keyword 分支各取 Top 20，使用 `k=60` 的 RRF 融合，授权过滤后 Rerank，最终保留 Top 5 证据。
+- 图谱实体使用固定的 `Entity` 节点类型，通过 `entity_type`、规范化名称和别名区分语义；实体关系统一使用 `RELATED_TO`，具体谓词保存在受控的 `predicate` 属性中，禁止让模型生成任意 Neo4j 关系类型。
+- 初始实体类型允许 Product、Policy、Process、Document、Organization、Location、Time 和 Condition；无法安全归类时使用 Other 并保留来源，不武断合并同名实体。
+- 以上参数必须配置化。调整阈值、块大小、RRF 或 Top-K 时，必须同步记录配置版本并重新运行 Golden Set。
+
+### 7.7 超时、重试与并发默认值
+
+- MySQL、Redis、Neo4j 和 Milvus 的单次普通操作超时默认 5 秒。
+- L2 路由默认超时 8 秒；L3 生成首 Token 默认等待上限 15 秒、完整生成上限 60 秒；Embedding 默认 30 秒；Rerank 默认 15 秒；OCR 单页默认 60 秒。
+- 只有只读请求或带稳定幂等键的操作允许自动重试，最多重试 2 次并使用指数退避和随机抖动；鉴权失败、验证失败和非幂等真实写入不得自动重试。
+- 阶段一入库任务并发默认 2，Embedding 批量默认 16；所有并发和批量值必须可配置，并受连接池与模型配额限制。
+- 超时、重试耗尽和降级必须写入结构化日志、任务状态和 Trace，但不得记录密钥或未经脱敏的正文。
+
+---
+
+## 八、最终检查清单
 
 部署前确认：
 

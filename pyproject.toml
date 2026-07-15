@@ -1,0 +1,101 @@
+[project]
+name = "neo4j-graphrag-agent"
+version = "0.1.0"
+description = "Enterprise multi-agent GraphRAG customer-service MVP"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "alembic>=1.17,<2",
+  "aiosqlite>=0.21,<1",
+  "aiomysql>=0.3.2,<1",
+  "beautifulsoup4>=4.14,<5",
+  "cryptography>=48.0.1,<50",
+  "fastapi>=0.126,<1",
+  "httpx>=0.28,<1",
+  "langfuse>=4,<5",
+  "langgraph>=1,<2",
+  "langgraph-checkpoint-redis>=0.5,<0.6",
+  "lxml>=6,<7",
+  "neo4j>=6.2,<7",
+  "openai>=2,<3",
+  "openpyxl>=3.1,<4",
+  "orjson>=3.11,<4",
+  "pillow>=12,<13",
+  "pydantic>=2.12,<3",
+  "pydantic-settings>=2.12,<3",
+  "pyjwt[crypto]>=2.10,<3",
+  "pymilvus==2.6.11",
+  "pymupdf>=1.26,<2",
+  "python-docx>=1.2,<2",
+  "python-multipart>=0.0.20,<1",
+  "python-pptx>=1.0,<2",
+  "redis>=7,<9",
+  "sqlalchemy>=2.0,<2.2",
+  "structlog>=25,<26",
+  "uvicorn[standard]>=0.38,<1",
+]
+
+[dependency-groups]
+dev = [
+  "mypy>=1.19,<2",
+  "pip-audit>=2.10,<3",
+  "pytest>=9,<10",
+  "pytest-asyncio>=1,<2",
+  "pytest-cov>=7,<8",
+  "respx>=0.22,<1",
+  "ruff>=0.14,<1",
+  "testcontainers>=4.13,<5",
+]
+
+[build-system]
+requires = ["hatchling>=1.28,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/graphrag"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+  "integration: requires external infrastructure",
+  "acceptance: phase-one acceptance tests",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "SIM", "RUF"]
+ignore = [
+  "ASYNC109", # Public Port contracts carry explicit timeout budgets.
+  "RUF001",   # Chinese product copy intentionally uses CJK punctuation.
+  "S101",     # Assertions are required in the test suite.
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["graphrag"]
+plugins = ["pydantic.mypy"]
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = ["pymilvus"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["fitz", "openpyxl"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+branch = true
+source = ["graphrag"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 80
