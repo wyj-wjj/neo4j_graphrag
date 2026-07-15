@@ -167,8 +167,8 @@ Compose 默认只启动基础依赖；`--profile app` 加入迁移、后端和�
 
 ## 13. 已知限制与阶段二入口
 
-- 当前执行容器没有 Docker CLI，因此真实四依赖集成、镜像启动/扫描只能由已定义的 CI Job 补跑。
-- 当前环境无法下载 Playwright Chromium，组件测试和生产构建已通过，浏览器 E2E/axe 由 CI 补跑。
+- 当前执行容器没有 Docker CLI；GitHub CI 已通过真实 MySQL、Redis、Milvus、Neo4j 集成、镜像启动和 Trivy 扫描。
+- 当前环境无法下载 Playwright Chromium；GitHub CI 已通过完整工作台 E2E 和逐页 axe 检查。
 - Golden Set 使用确定性合成数据和 Fake 模型；真实百炼只做受控评测，不能把离线延迟当生产指标。
 - 阶段一事件写 Outbox，但没有 Kafka Relay；对象存储仍为本地目录。
 - 没有真实订单、物流、退款、企微、邮件或审批执行 Adapter。

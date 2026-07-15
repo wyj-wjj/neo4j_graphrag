@@ -1,7 +1,7 @@
 # 阶段一实施进度
 
-> 更新时间：2026-07-14。状态“代码完成/外部待验”表示实现和离线测试已完成，但当前工作区缺少 Docker
-> 或浏览器二进制，不能声称真实环境已经执行；相应验证已写入 CI。
+> 更新时间：2026-07-14。阶段一代码、离线测试、真实依赖集成、浏览器端到端、无障碍和供应链
+> 验收均已通过；生产百炼、真实业务 API 与审批执行仍属于受控上线或阶段二范围。
 
 ## 总览
 
@@ -9,16 +9,16 @@
 | --- | --- | --- |
 | 0.1–0.5 约束基线 | 完成 | 必读文档、范围、密钥风险与记录格式已核对 |
 | 1.1–2.9 工程与契约 | 完成 | 冻结安装、配置负例、Port/Fake、类型与契约测试 |
-| 3.1–3.9 MySQL 真理源 | 代码完成/真实 MySQL 待 CI 重验 | SQLite 仓库测试；迁移 upgrade/diff/downgrade/upgrade |
-| 4.1–4.5 Redis | 代码完成/真实 Redis 待 CI 重验 | Fake Adapter 契约；Redis 8 Compose 与真实 Adapter CI |
-| 5.1–6.5 Milvus/Neo4j | CI 最终修复已应用/待重验 | Neo4j 镜像与 Milvus-MinIO 凭据链路已修正；真实 Adapter CI 待重验 |
+| 3.1–3.9 MySQL 真理源 | 完成 | SQLite 仓库测试；真实 MySQL 8.4 迁移与健康检查通过 |
+| 4.1–4.5 Redis | 完成 | Fake 契约及真实 Redis 8 能力、Checkpoint、锁测试通过 |
+| 5.1–6.5 Milvus/Neo4j | 完成 | 真实 Milvus/MinIO 写后检索与 Neo4j 有界检索、删除测试通过 |
 | 7.1–7.6 百炼 Provider | 完成 | httpx/OpenAI 兼容、结构化输出、流、Embedding、OCR、Rerank Fake 测试 |
 | 8.1–9.7 入库与一致性 | 完成 | 格式解析、父子分块、部分失败恢复、版本激活和下线验收 |
 | 10.0–10.11 GraphRAG | 完成 | 并发/RRF/ACL/Rerank/引用/拒答；20 条 Golden Set 全门槛通过 |
 | 11.1–11.11 Agent/Tool | 完成 | 全 Agent 路径、Tool 审计、Fake 边界、Checkpoint 持久化 |
 | 12.1–12.9 API | 完成 | OpenAPI、JWT/RBAC、REST、SSE、回调、统一错误验收 |
-| 13.1–13.8 前端 | E2E 最终断言已修复/待重验 | 主流程已执行到引用答案；精确定位 `[C1]` 标记，避免严格模式歧义 |
-| 14.1–14.12 交付 | CI 最终修复已应用/待重验 | Milvus 凭据链路、Trivy 扫描与 E2E 均已完成针对性修复 |
+| 13.1–13.8 前端 | 完成 | Playwright 完整主流程与逐页 axe 严重/关键问题检查通过 |
+| 14.1–14.12 交付 | 完成 | 全部五个 CI Job、镜像 Trivy 和 gitleaks 通过 |
 
 ## 已完成实现
 
@@ -44,8 +44,8 @@
 - pytest：47 通过，1 个真实依赖测试因当前环境无 Docker 跳过；分支覆盖率 86.48%。
 - Golden Set：20 条；路由、Recall@20、MRR、NDCG、引用、Faithfulness、拒答率均为 1.0。
 - pip-audit：无已知漏洞；仅本地项目因未发布到 PyPI 被跳过。
-- 前端：ESLint/TypeScript 通过，Vitest 2 通过，Vite 生产构建通过；Playwright 已确认后端与
-  Vite 能自动启动，但浏览器可执行文件因下载受限而缺失。
+- 前端：ESLint/TypeScript、Vitest 2 条测试和 Vite 生产构建通过；GitHub CI 中 Playwright 1 条
+  完整工作台主流程及逐页 axe 检查通过。
 - Compose：YAML 结构解析通过，共 8 个服务。
 - GitHub CI 首轮确认 backend、secrets 通过；发现并修复 Neo4j 不存在的镜像标签、Trivy Action
   缺少 `v` 前缀，以及 Progress 无可访问名称和占位文字对比度不足。
@@ -66,16 +66,17 @@
   同时达到 WCAG AA 4.5:1 门槛。
 - 后续浏览器重验确认来源 Tag 对比度问题已消除，并执行到最后的检索调试页；该页无业务作用的
   `aria-hidden` 占位按钮仍可获得焦点，现已删除该元素，不通过放宽 axe 规则规避问题。
+- GitHub Actions `ci` 运行 `29383348044` 最终确认 `backend`、`frontend`、`real-integration`、
+  `images`、`secrets` 五个 Job 全部通过；阶段一外部验收完成。
 
-## 环境阻塞与补跑入口
+## 本地环境限制与 CI 覆盖
 
-1. 当前环境没有 `docker`/`podman`，未本地执行 MySQL 8.4、Redis 8.2、Milvus 2.6、Neo4j 5.26.28、
-   镜像构建、容器健康检查和 Trivy。修复后的 GitHub Actions `real-integration` 与 `images` Job 是强制补跑入口。
-2. Playwright Chromium 下载端返回空或截断归档，未本地运行浏览器 E2E 与 axe；CI 会安装 Chromium 后执行。
+1. 当前工作区没有 `docker`/`podman`；GitHub Actions 已实际运行 MySQL 8.4、Redis 8.2、Milvus 2.6、
+   Neo4j 5.26.28、容器健康检查、迁移、真实 Adapter、镜像构建和 Trivy，结果通过。
+2. 当前工作区的 Chromium 下载受限；GitHub Actions 已安装固定 Playwright Chromium 并完成 E2E 与 axe，结果通过。
 3. 未使用真实百炼密钥，符合 CI 禁止收费模型要求；生产前必须运行受控云模型评测与容量测试。
 
 ## 下一步
 
-- 推送最终 CI 修复提交，并观察 GitHub Actions 全部 Job。
-- 只有 `backend`、`frontend`、`real-integration`、`images`、`secrets` 全绿后，才能把阶段一外部验收标记为完全完成。
+- 合并已通过全部检查的阶段一 PR，并以当前文档、锁文件和测试作为后续 AI/开发者的迁移基线。
 - 生产部署前提供真实 JWKS、轮换后的数据库/Redis/Neo4j/MinIO 密码和百炼密钥，不得提交这些值。
