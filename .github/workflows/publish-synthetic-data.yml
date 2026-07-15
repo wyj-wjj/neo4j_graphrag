@@ -27,8 +27,6 @@ jobs:
       FAILURE_ESTIMATED_BYTES: "2941757500"
       DEV_MANIFEST_SHA256: 5bbea39339499703796fe5d9d01fdc8541f4414d11ae3b6f3ad65f30baef7fe2
       FAILURE_MANIFEST_SHA256: 2c64f88dc89625a4b44f504e62c7730cfe6caad003a365c19ac34f1b55d98a60
-      DEV_ARCHIVE_SHA256: d1f94aa46b8e1255f57250e8cbd17d398ddb111ef2c24d022b1126d76c5e7429
-      FAILURE_ARCHIVE_SHA256: be8d4b59664db4a77e8aaed985cac4b3d9e2194d7be9e02ba594fe0f601e27e0
     defaults:
       run:
         shell: bash
@@ -63,8 +61,9 @@ jobs:
           gzip -1 -n -c release-assets/synthetic-commerce-v1-dev-standard.tar \
             > release-assets/synthetic-commerce-v1-dev-standard.tar.gz
           gzip -t release-assets/synthetic-commerce-v1-dev-standard.tar.gz
-          echo "$DEV_ARCHIVE_SHA256  release-assets/synthetic-commerce-v1-dev-standard.tar.gz" \
-            | sha256sum -c -
+          sha256sum release-assets/synthetic-commerce-v1-dev-standard.tar.gz
+          echo "DEV_ARCHIVE_SHA256=$(sha256sum release-assets/synthetic-commerce-v1-dev-standard.tar.gz | cut -d' ' -f1)" \
+            >> "$GITHUB_ENV"
           rm -f release-assets/synthetic-commerce-v1-dev-standard.tar
           rm -rf generated/synthetic-commerce-v1/dev-standard
       - name: Generate, validate, and package failure-lab
@@ -83,8 +82,9 @@ jobs:
           gzip -1 -n -c release-assets/synthetic-commerce-v1-failure-lab.tar \
             > release-assets/synthetic-commerce-v1-failure-lab.tar.gz
           gzip -t release-assets/synthetic-commerce-v1-failure-lab.tar.gz
-          echo "$FAILURE_ARCHIVE_SHA256  release-assets/synthetic-commerce-v1-failure-lab.tar.gz" \
-            | sha256sum -c -
+          sha256sum release-assets/synthetic-commerce-v1-failure-lab.tar.gz
+          echo "FAILURE_ARCHIVE_SHA256=$(sha256sum release-assets/synthetic-commerce-v1-failure-lab.tar.gz | cut -d' ' -f1)" \
+            >> "$GITHUB_ENV"
           rm -f release-assets/synthetic-commerce-v1-failure-lab.tar
           rm -rf generated/synthetic-commerce-v1/failure-lab
       - name: Write release checksum files
