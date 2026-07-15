@@ -1,0 +1,102 @@
+{
+  "$defs": {
+    "UploadTask": {
+      "additionalProperties": true,
+      "properties": {
+        "document_id": {
+          "title": "Document Id",
+          "type": "string"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "error_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Message"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "document_id",
+        "status"
+      ],
+      "title": "UploadTask",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "expected_outcome": {
+      "enum": [
+        "parse_success",
+        "ocr_success",
+        "reject_corrupt"
+      ],
+      "title": "Expected Outcome",
+      "type": "string"
+    },
+    "http_status": {
+      "title": "Http Status",
+      "type": "integer"
+    },
+    "rejection_body": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Rejection Body"
+    },
+    "relative_path": {
+      "title": "Relative Path",
+      "type": "string"
+    },
+    "task": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UploadTask"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "relative_path",
+    "expected_outcome",
+    "http_status",
+    "task",
+    "rejection_body"
+  ],
+  "title": "UploadResult",
+  "type": "object"
+}

@@ -1,0 +1,15 @@
+* text=auto
+
+*.docx binary
+*.jpeg binary
+*.jpg binary
+*.pdf binary
+*.png binary
+*.pptx binary
+*.xlsx binary
+
+synthetic-data/fixtures/**/*.json text eol=lf
+synthetic-data/fixtures/**/*.jsonl text eol=lf
+synthetic-data/fixtures/**/*.md text eol=lf
+synthetic-data/fixtures/**/*.txt text eol=lf
+synthetic-data/fixtures/**/*.yaml text eol=lf

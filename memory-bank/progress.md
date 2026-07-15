@@ -19,6 +19,17 @@
 | 12.1–12.9 API | 完成 | OpenAPI、JWT/RBAC、REST、SSE、回调、统一错误验收 |
 | 13.1–13.8 前端 | 完成 | Playwright 完整主流程与逐页 axe 严重/关键问题检查通过 |
 | 14.1–14.12 交付 | 完成 | 全部五个 CI Job、镜像 Trivy 和 gitleaks 通过 |
+| 1.5-A 会话一致性 | 完成 | client_turn_id、消息序号、revision、单会话单运行、事务提交与回放测试 |
+| 1.5-B 上下文与短期记忆 | 完成 | 30/20/40/10 Token 基线、摘要/结构状态、Manifest、多轮指代测试 |
+| 1.5-C Checkpoint 与恢复 | 完成 | State v1→v2、真实 interrupt/resume、MySQL 快照及 Redis 丢失回退 |
+| 1.5-D 真实流式与执行可靠性 | 完成 | Provider delta、RunEvent v1、统一终态、取消、Tool 输出/重试/舱壁/熔断 |
+| 1.5-E 治理与评测 | 完成 | 长期记忆治理、Safety Port、Prompt/Generation Manifest、质量报告、可靠性门禁、受控结果收敛契约 |
+| 2.0 合成数据设计 | 完成设计 | `phase2-data-spec-v1` 与 118 步数据工厂实施计划 |
+| 2.1 `ci-small` 合成数据基线 | 完成 | 18,992 条记录、多格式文件、独立 Oracle、原子导出、Manifest；数据工厂共 53 项测试 |
+| 2.2 HTTP 模拟与上传工具 | 完成内存验收/待真实依赖 | 非生产模拟器；正式 API 18/18 入库、199 Chunk、14/14 Anchor；未连真实三库 |
+| 2.3 评测与安全治理 | 完成离线基线 | 2,000 Silver、5,000 Security、500 Memory、300 Candidate、评分与双人审核门禁 |
+| 2.4 事件与清理 | 完成离线基线 | 2,300 次投递、Inbox/DLQ 重放 Oracle、资源估算、Manifest dry-run/确认清理 |
+| 2.5 大规模与全链路 | 部分完成 | dev/failure 已流式物化并独立验收；staging、Kafka、真实依赖与 GraphRAG 待完成 |
 
 ## 已完成实现
 
@@ -39,10 +50,18 @@
 
 最终验收命令执行后更新本节；当前已确认：
 
+- 阶段 1.5 里程碑 A–E 本地增量验收：pytest 95 通过、1 个真实依赖测试因当前环境无 Docker 跳过；
+  新增内存/SQL 并发、重复请求、取消重试、消息顺序、迁移、API 回放、Token 预算、摘要/结构状态、
+  Manifest 持久化、多轮指代、State 迁移、审批中断/恢复、冲突决定、Redis 丢失回退、Provider 首个
+  delta、SSE/持久化终态一致、取消传播、Tool 输出验证、幂等重试、总超时、舱壁、熔断、长期记忆
+  确认/纠正/禁用/删除/隔离、Safety、Prompt hash、Generation Manifest、知识质量，以及最多两个专家的
+  权威/时效/冲突收敛测试。
 - Ruff：通过。
-- mypy strict：通过，49 个源码文件无错误。
-- pytest：47 通过，1 个真实依赖测试因当前环境无 Docker 跳过；分支覆盖率 86.48%。
+- mypy strict：通过，58 个源码文件无错误。
+- pytest：95 通过，1 个真实依赖测试因当前环境无 Docker 跳过；覆盖率 86.43%，高于 80% 门槛。
 - Golden Set：20 条；路由、Recall@20、MRR、NDCG、引用、Faithfulness、拒答率均为 1.0。
+- Memory & Reliability Golden Set：4/8/12/16 轮共 4 组；关键约束保留、上下文预算、幂等、State
+  迁移和隔离率均为 1.0；自动长期记忆写入率、长会话成功率下降、重复追问率和关键约束违反率均为 0。
 - pip-audit：无已知漏洞；仅本地项目因未发布到 PyPI 被跳过。
 - 前端：ESLint/TypeScript、Vitest 2 条测试和 Vite 生产构建通过；GitHub CI 中 Playwright 1 条
   完整工作台主流程及逐页 axe 检查通过。
@@ -68,6 +87,36 @@
   `aria-hidden` 占位按钮仍可获得焦点，现已删除该元素，不通过放宽 axe 规则规避问题。
 - GitHub Actions `ci` 运行 `29383348044` 最终确认 `backend`、`frontend`、`real-integration`、
   `images`、`secrets` 五个 Job 全部通过；阶段一外部验收完成。
+- 阶段二数据工厂当前基线：Ruff、格式和 mypy strict（21 个源码文件）通过；58 项测试通过，覆盖率
+  89.19%（门槛 85%）。
+  固定 `ci-small` 生成 18,992 条结构化记录，包含 2,000 Silver、5,000 Security、500 Memory、300
+  Golden Candidate、2,000 事件、2,300 次投递、986 条逐聚合重放终态、200 条 DLQ 修复真值，以及
+  9 种知识格式的正常/边界/损坏矩阵。产物共 103 个文件、约 14 MB，Manifest 管理 102 个文件，摘要为
+  `fe860fa31c1d49e406246f2bf46b25afa7338b0bd7f20a9e3b507ccdf38e489b`；重复生成逐字节一致。
+- 数据工厂独立 HTTP 模拟器已通过跨租户、Fake Envelope、草单幂等/冲突和受保护故障控制契约测试。
+  正式上传客户端除 HTTP Mock 外，已直接连接根项目真实 FastAPI Test/Fake 组合：18 个有效样本全部完成，
+  生成 18 个文档、18 个版本、199 个 Chunk，14 个可解析文档的 Evidence Anchor 全部映射到 Chunk。
+  首轮验收发现边界 XLSX 的超长 Token 会让 Fake 图抽取失败；新增复现断言并限制实体长度后复验通过。
+  该结果仍未验证用户本地 MySQL/Milvus/Neo4j。
+- 公共契约现有 39 份 JSON Schema；行为评分、Recall/MRR/NDCG、候选双人审核与指纹失效、安全 dry-run
+  清理和完整 dataset ID 确认均有自动化测试。GitHub CI 新增独立 `synthetic-data` 快速 Job。
+- 阶段二大 Profile 现采用 `graphrag-data-factory-v3`：规范 JSONL 批次写入、每批 fsync、版本化检查点、
+  显式 `--resume`、已提交前缀校验/尾部截断、完成文件复核、临时 SQLite 关系索引、独立全量验证和原子发布。
+  CLI 只开放 `dev-standard`/`failure-lab`；`staging-large` 因核心事实仍是内存工作集而继续硬停止。
+- `failure-lab` 已物化到 `synthetic-data/generated/synthetic-commerce-v1/failure-lab/`：1,380,226 条记录、
+  326 个文件、1,155,538,493 字节；生成+校验 223.850 秒，峰值 342,696 KiB，Manifest 摘要
+  `2c64f88dc89625a4b44f504e62c7730cfe6caad003a365c19ac34f1b55d98a60`。
+- `dev-standard` 已物化到 `synthetic-data/generated/synthetic-commerce-v1/dev-standard/`：3,372,108 条记录、
+  1,226 个文件、2,842,845,571 字节；优化后生成+校验 570.486 秒，峰值 1,447,980 KiB，Manifest 摘要
+  `5bbea39339499703796fe5d9d01fdc8541f4414d11ae3b6f3ad65f30baef7fe2`。批次派生相对优化前实测耗时
+  下降约 12.6%，峰值下降约 37.6%，优化前后 v2 内容摘要一致。
+- Office 容器内 `modified` 时间现统一规范为固定值，修复跨秒生成 XLSX Hash 漂移；全新 v3
+  `ci-small` 生成与验证摘要为 `a6e48bc37562ae4cc499c8d8de803a363e138cc3fd2efcde8ecdfb6175eb5ee4`。
+  已提交 Fixture 保留为可验证的历史 v2（摘要 `fe860fa3…e489b`），验证器只兼容 v2/v3并拒绝未知版本。
+- 大数据分发链路已建立：固定 Release 标签 `synthetic-commerce-v1-data-v3`，确定性 tar/gzip 元数据、
+  Archive/Manifest 双重 SHA-256、GitHub Actions 生成与发布门禁，以及本地 `fetch-release` 安全下载、
+  全量验证和原子安装。`dev-standard` 压缩包 445,969,397 字节，`failure-lab` 压缩包
+  197,895,809 字节；大文件继续保持在 Git 历史之外。
 
 ## 本地环境限制与 CI 覆盖
 
@@ -78,5 +127,12 @@
 
 ## 下一步
 
-- 合并已通过全部检查的阶段一 PR，并以当前文档、锁文件和测试作为后续 AI/开发者的迁移基线。
-- 生产部署前提供真实 JWKS、轮换后的数据库/Redis/Neo4j/MinIO 密码和百炼密钥，不得提交这些值。
+- 下一步优先在可达的真实依赖环境加载已验收 Profile，复验 Anchor Map、引用、拒答和派生索引重建；
+  同时保持 `staging-large` 关闭，直到核心事实也改为磁盘工作集并完成单独容量验收。
+- 在可达的真实 MySQL/Milvus/Neo4j 开发环境复验正式上传与 Evidence Anchor 映射；之后执行派生索引销毁
+  重建和完整 GraphRAG 评测。
+- Kafka Relay、消费者、DLQ 修复审计和真实业务 HTTP Adapter 尚未实现；当前模拟器与离线事件 Oracle
+  只提供稳定契约和测试数据，不代表生产阶段二基础设施已完成。
+- 合成数据只能用于工程、安全和容量趋势验证；调整上下文比例、启用模型 Router、真实双专家执行和真实
+  业务写入仍需受控评测及相应真实契约。
+- 生产部署前仍需提供真实 JWKS、轮换后的数据库/Redis/Neo4j/MinIO 密码和百炼密钥，且不得提交这些值。

@@ -1,0 +1,182 @@
+{
+  "$defs": {
+    "ProfileCounts": {
+      "additionalProperties": false,
+      "properties": {
+        "conversations": {
+          "maximum": 1000000,
+          "minimum": 1,
+          "title": "Conversations",
+          "type": "integer"
+        },
+        "evaluation_cases": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Evaluation Cases",
+          "type": "integer"
+        },
+        "event_deliveries": {
+          "maximum": 25000000,
+          "minimum": 1,
+          "title": "Event Deliveries",
+          "type": "integer"
+        },
+        "events": {
+          "maximum": 20000000,
+          "minimum": 1,
+          "title": "Events",
+          "type": "integer"
+        },
+        "fault_schedules": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Fault Schedules",
+          "type": "integer"
+        },
+        "golden_candidates": {
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Golden Candidates",
+          "type": "integer"
+        },
+        "knowledge_documents": {
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Knowledge Documents",
+          "type": "integer"
+        },
+        "memory_cases": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Memory Cases",
+          "type": "integer"
+        },
+        "orders": {
+          "maximum": 2000000,
+          "minimum": 1,
+          "title": "Orders",
+          "type": "integer"
+        },
+        "physical_files": {
+          "maximum": 10000,
+          "minimum": 27,
+          "title": "Physical Files",
+          "type": "integer"
+        },
+        "products": {
+          "maximum": 100000,
+          "minimum": 8,
+          "title": "Products",
+          "type": "integer"
+        },
+        "security_cases": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Security Cases",
+          "type": "integer"
+        },
+        "tenants": {
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Tenants",
+          "type": "integer"
+        },
+        "users": {
+          "maximum": 200000,
+          "minimum": 6,
+          "title": "Users",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tenants",
+        "users",
+        "products",
+        "orders",
+        "conversations",
+        "knowledge_documents",
+        "physical_files",
+        "events",
+        "evaluation_cases",
+        "security_cases",
+        "memory_cases",
+        "golden_candidates",
+        "event_deliveries",
+        "fault_schedules"
+      ],
+      "title": "ProfileCounts",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "batch_size": {
+      "maximum": 100000,
+      "minimum": 1,
+      "title": "Batch Size",
+      "type": "integer"
+    },
+    "counts": {
+      "$ref": "#/$defs/ProfileCounts"
+    },
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "intent_percentages": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "propertyNames": {
+        "enum": [
+          "faq",
+          "kb",
+          "order",
+          "logistics",
+          "refund",
+          "escalation",
+          "multi_intent"
+        ]
+      },
+      "title": "Intent Percentages",
+      "type": "object"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "profile_version": {
+      "const": "profile-v1",
+      "title": "Profile Version",
+      "type": "string"
+    },
+    "reference_time": {
+      "format": "date-time",
+      "title": "Reference Time",
+      "type": "string"
+    },
+    "requires_explicit_large_flag": {
+      "title": "Requires Explicit Large Flag",
+      "type": "boolean"
+    },
+    "root_seed": {
+      "maximum": 9223372036854775807,
+      "minimum": 1,
+      "title": "Root Seed",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "profile_version",
+    "name",
+    "enabled",
+    "requires_explicit_large_flag",
+    "root_seed",
+    "reference_time",
+    "batch_size",
+    "counts",
+    "intent_percentages"
+  ],
+  "title": "DatasetProfile",
+  "type": "object"
+}

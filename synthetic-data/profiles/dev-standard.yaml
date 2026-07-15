@@ -1,0 +1,30 @@
+profile_version: profile-v1
+name: dev-standard
+enabled: true
+requires_explicit_large_flag: true
+root_seed: 20260714
+reference_time: 2026-01-01T00:00:00Z
+batch_size: 1000
+counts:
+  tenants: 10
+  users: 10000
+  products: 2000
+  orders: 100000
+  conversations: 50000
+  knowledge_documents: 1000
+  physical_files: 200
+  events: 1000000
+  evaluation_cases: 2000
+  security_cases: 5000
+  memory_cases: 500
+  golden_candidates: 300
+  event_deliveries: 1150000
+  fault_schedules: 1000
+intent_percentages:
+  faq: 20
+  kb: 25
+  order: 15
+  logistics: 15
+  refund: 10
+  escalation: 5
+  multi_intent: 10

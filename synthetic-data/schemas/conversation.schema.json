@@ -1,0 +1,190 @@
+{
+  "$defs": {
+    "ConversationTurn": {
+      "additionalProperties": false,
+      "properties": {
+        "constraint_updates": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Constraint Updates",
+          "type": "object"
+        },
+        "role": {
+          "enum": [
+            "user",
+            "assistant"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "sequence": {
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sequence",
+        "role",
+        "text",
+        "constraint_updates"
+      ],
+      "title": "ConversationTurn",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "allowed_tools": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed Tools",
+      "type": "array"
+    },
+    "channel": {
+      "enum": [
+        "web",
+        "app",
+        "miniapp",
+        "agent_console"
+      ],
+      "title": "Channel",
+      "type": "string"
+    },
+    "conversation_id": {
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "dataset_id": {
+      "maxLength": 160,
+      "minLength": 8,
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "dataset_version": {
+      "const": "synthetic-commerce-v1",
+      "title": "Dataset Version",
+      "type": "string"
+    },
+    "expected_agents": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 2,
+      "minItems": 1,
+      "title": "Expected Agents",
+      "type": "array"
+    },
+    "forbidden_side_effects": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Forbidden Side Effects",
+      "type": "array"
+    },
+    "intent": {
+      "enum": [
+        "faq",
+        "kb",
+        "order",
+        "logistics",
+        "refund",
+        "escalation",
+        "multi_intent"
+      ],
+      "title": "Intent",
+      "type": "string"
+    },
+    "is_synthetic": {
+      "const": true,
+      "default": true,
+      "title": "Is Synthetic",
+      "type": "boolean"
+    },
+    "order_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Order Id"
+    },
+    "scenario_family": {
+      "title": "Scenario Family",
+      "type": "string"
+    },
+    "scenario_id": {
+      "maxLength": 160,
+      "minLength": 8,
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "synthetic-record-v1",
+      "default": "synthetic-record-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "const": "fake",
+      "default": "fake",
+      "title": "Source",
+      "type": "string"
+    },
+    "split": {
+      "enum": [
+        "train",
+        "dev",
+        "test",
+        "holdout"
+      ],
+      "title": "Split",
+      "type": "string"
+    },
+    "tenant_id": {
+      "pattern": "^synthetic-[a-z0-9-]+$",
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "turns": {
+      "items": {
+        "$ref": "#/$defs/ConversationTurn"
+      },
+      "minItems": 1,
+      "title": "Turns",
+      "type": "array"
+    },
+    "user_id": {
+      "title": "User Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "dataset_id",
+    "dataset_version",
+    "scenario_id",
+    "tenant_id",
+    "conversation_id",
+    "user_id",
+    "channel",
+    "intent",
+    "scenario_family",
+    "split",
+    "order_id",
+    "turns",
+    "expected_agents",
+    "allowed_tools",
+    "forbidden_side_effects"
+  ],
+  "title": "ConversationRecord",
+  "type": "object"
+}

@@ -1,0 +1,57 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "agents": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Agents",
+      "type": "array"
+    },
+    "answer_status": {
+      "title": "Answer Status",
+      "type": "string"
+    },
+    "cross_tenant_retrieval_count": {
+      "minimum": 0,
+      "title": "Cross Tenant Retrieval Count",
+      "type": "integer"
+    },
+    "evidence_anchor_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Anchor Ids",
+      "type": "array"
+    },
+    "predicted_intent": {
+      "title": "Predicted Intent",
+      "type": "string"
+    },
+    "side_effects": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Side Effects",
+      "type": "array"
+    },
+    "tool_order": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tool Order",
+      "type": "array"
+    }
+  },
+  "required": [
+    "predicted_intent",
+    "agents",
+    "tool_order",
+    "evidence_anchor_ids",
+    "side_effects",
+    "answer_status",
+    "cross_tenant_retrieval_count"
+  ],
+  "title": "ObservedAgentResult",
+  "type": "object"
+}

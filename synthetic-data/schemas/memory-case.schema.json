@@ -1,0 +1,177 @@
+{
+  "$defs": {
+    "ContextBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "available_input_tokens": {
+          "const": 26624,
+          "default": 26624,
+          "title": "Available Input Tokens",
+          "type": "integer"
+        },
+        "context_window_tokens": {
+          "const": 32768,
+          "default": 32768,
+          "title": "Context Window Tokens",
+          "type": "integer"
+        },
+        "external_evidence_tokens": {
+          "const": 10650,
+          "default": 10650,
+          "title": "External Evidence Tokens",
+          "type": "integer"
+        },
+        "output_reserve_tokens": {
+          "const": 4096,
+          "default": 4096,
+          "title": "Output Reserve Tokens",
+          "type": "integer"
+        },
+        "safety_reserve_tokens": {
+          "const": 2048,
+          "default": 2048,
+          "title": "Safety Reserve Tokens",
+          "type": "integer"
+        },
+        "short_term_tokens": {
+          "const": 7987,
+          "default": 7987,
+          "title": "Short Term Tokens",
+          "type": "integer"
+        },
+        "system_protocol_tokens": {
+          "const": 2662,
+          "default": 2662,
+          "title": "System Protocol Tokens",
+          "type": "integer"
+        },
+        "working_memory_tokens": {
+          "const": 5325,
+          "default": 5325,
+          "title": "Working Memory Tokens",
+          "type": "integer"
+        }
+      },
+      "title": "ContextBudget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "context_policy_version": {
+      "const": "context-policy-v1",
+      "default": "context-policy-v1",
+      "title": "Context Policy Version",
+      "type": "string"
+    },
+    "conversation_id": {
+      "title": "Conversation Id",
+      "type": "string"
+    },
+    "dataset_id": {
+      "maxLength": 160,
+      "minLength": 8,
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "dataset_version": {
+      "const": "synthetic-commerce-v1",
+      "title": "Dataset Version",
+      "type": "string"
+    },
+    "expected_constraints": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Expected Constraints",
+      "type": "object"
+    },
+    "expected_cross_tenant_leakage": {
+      "const": 0,
+      "default": 0,
+      "title": "Expected Cross Tenant Leakage",
+      "type": "integer"
+    },
+    "expected_duplicate_side_effects": {
+      "const": 0,
+      "default": 0,
+      "title": "Expected Duplicate Side Effects",
+      "type": "integer"
+    },
+    "expected_summary_covered_sequence": {
+      "minimum": 0,
+      "title": "Expected Summary Covered Sequence",
+      "type": "integer"
+    },
+    "is_synthetic": {
+      "const": true,
+      "default": true,
+      "title": "Is Synthetic",
+      "type": "boolean"
+    },
+    "memory_case_id": {
+      "title": "Memory Case Id",
+      "type": "string"
+    },
+    "oracle_version": {
+      "title": "Oracle Version",
+      "type": "string"
+    },
+    "recovery_mode": {
+      "enum": [
+        "normal",
+        "checkpoint",
+        "mysql_snapshot"
+      ],
+      "title": "Recovery Mode",
+      "type": "string"
+    },
+    "scenario_id": {
+      "maxLength": 160,
+      "minLength": 8,
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "synthetic-record-v1",
+      "default": "synthetic-record-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "const": "fake",
+      "default": "fake",
+      "title": "Source",
+      "type": "string"
+    },
+    "target_budget": {
+      "$ref": "#/$defs/ContextBudget"
+    },
+    "tenant_id": {
+      "pattern": "^synthetic-[a-z0-9-]+$",
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "turns": {
+      "maximum": 32,
+      "minimum": 4,
+      "title": "Turns",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "dataset_id",
+    "dataset_version",
+    "scenario_id",
+    "tenant_id",
+    "memory_case_id",
+    "conversation_id",
+    "turns",
+    "expected_constraints",
+    "expected_summary_covered_sequence",
+    "recovery_mode",
+    "oracle_version"
+  ],
+  "title": "MemoryCaseRecord",
+  "type": "object"
+}

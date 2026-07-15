@@ -1,0 +1,30 @@
+profile_version: profile-v1
+name: failure-lab
+enabled: true
+requires_explicit_large_flag: true
+root_seed: 20260715
+reference_time: 2026-01-01T00:00:00Z
+batch_size: 1000
+counts:
+  tenants: 5
+  users: 1000
+  products: 500
+  orders: 10000
+  conversations: 5000
+  knowledge_documents: 200
+  physical_files: 100
+  events: 500000
+  evaluation_cases: 2000
+  security_cases: 5000
+  memory_cases: 1000
+  golden_candidates: 300
+  event_deliveries: 650000
+  fault_schedules: 10000
+intent_percentages:
+  faq: 20
+  kb: 25
+  order: 15
+  logistics: 15
+  refund: 10
+  escalation: 5
+  multi_intent: 10

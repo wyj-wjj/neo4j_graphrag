@@ -1,0 +1,42 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "estimate_only": {
+      "default": true,
+      "title": "Estimate Only",
+      "type": "boolean"
+    },
+    "estimated_bytes": {
+      "minimum": 1,
+      "title": "Estimated Bytes",
+      "type": "integer"
+    },
+    "estimated_peak_memory_bytes": {
+      "minimum": 1,
+      "title": "Estimated Peak Memory Bytes",
+      "type": "integer"
+    },
+    "estimated_records": {
+      "minimum": 1,
+      "title": "Estimated Records",
+      "type": "integer"
+    },
+    "output_class": {
+      "title": "Output Class",
+      "type": "string"
+    },
+    "profile": {
+      "title": "Profile",
+      "type": "string"
+    }
+  },
+  "required": [
+    "profile",
+    "estimated_records",
+    "estimated_bytes",
+    "estimated_peak_memory_bytes",
+    "output_class"
+  ],
+  "title": "GenerationEstimate",
+  "type": "object"
+}

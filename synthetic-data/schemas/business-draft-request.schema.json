@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "idempotency_key": {
+      "maxLength": 200,
+      "minLength": 8,
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "masked_address": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "minLength": 3,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Masked Address"
+    }
+  },
+  "required": [
+    "idempotency_key"
+  ],
+  "title": "DraftRequest",
+  "type": "object"
+}

@@ -1,0 +1,77 @@
+[project]
+name = "graphrag-synthetic-data"
+version = "0.1.0"
+description = "Deterministic synthetic commerce data factory for the GraphRAG project"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi>=0.126,<1",
+  "httpx>=0.28,<1",
+  "openpyxl>=3.1,<4",
+  "pillow>=12,<13",
+  "pydantic>=2.12,<3",
+  "pymupdf>=1.26,<2",
+  "python-docx>=1.2,<2",
+  "python-multipart>=0.0.20,<1",
+  "python-pptx>=1.0,<2",
+  "pyyaml>=6,<7",
+  "uvicorn>=0.38,<1",
+]
+
+[dependency-groups]
+dev = [
+  "mypy>=1.19,<2",
+  "pytest>=9,<10",
+  "pytest-cov>=7,<8",
+  "ruff>=0.14,<1",
+]
+
+[project.scripts]
+graphrag-data = "graphrag_data_factory.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.28,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/graphrag_data_factory"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+testpaths = ["tests"]
+markers = [
+  "contract: public data schema and manifest contract",
+  "invariant: cross-record business and safety invariant",
+  "scale: explicit large-profile test",
+  "fault: failure injection and replay test",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "SIM", "RUF"]
+ignore = [
+  "RUF001",
+  "S101",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["graphrag_data_factory"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["fitz", "openpyxl", "yaml"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+branch = true
+source = ["graphrag_data_factory"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 85

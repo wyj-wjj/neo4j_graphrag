@@ -1,0 +1,53 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "candidate_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Candidate Fingerprint",
+      "type": "string"
+    },
+    "candidate_id": {
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "decision": {
+      "enum": [
+        "approved",
+        "rejected"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "review_id": {
+      "title": "Review Id",
+      "type": "string"
+    },
+    "reviewed_at": {
+      "format": "date-time",
+      "title": "Reviewed At",
+      "type": "string"
+    },
+    "reviewer_id": {
+      "title": "Reviewer Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "review_id",
+    "candidate_id",
+    "candidate_fingerprint",
+    "reviewer_id",
+    "decision",
+    "findings",
+    "reviewed_at"
+  ],
+  "title": "CandidateReview",
+  "type": "object"
+}

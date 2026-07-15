@@ -1,0 +1,30 @@
+profile_version: profile-v1
+name: staging-large
+enabled: true
+requires_explicit_large_flag: true
+root_seed: 20260714
+reference_time: 2026-01-01T00:00:00Z
+batch_size: 5000
+counts:
+  tenants: 50
+  users: 100000
+  products: 10000
+  orders: 1000000
+  conversations: 500000
+  knowledge_documents: 5000
+  physical_files: 500
+  events: 10000000
+  evaluation_cases: 10000
+  security_cases: 25000
+  memory_cases: 5000
+  golden_candidates: 1000
+  event_deliveries: 11500000
+  fault_schedules: 50000
+intent_percentages:
+  faq: 20
+  kb: 25
+  order: 15
+  logistics: 15
+  refund: 10
+  escalation: 5
+  multi_intent: 10

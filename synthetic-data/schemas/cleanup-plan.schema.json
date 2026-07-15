@@ -1,0 +1,44 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "default": "dry_run",
+      "title": "Action",
+      "type": "string"
+    },
+    "dataset_id": {
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "dataset_root": {
+      "title": "Dataset Root",
+      "type": "string"
+    },
+    "owned_bytes": {
+      "minimum": 1,
+      "title": "Owned Bytes",
+      "type": "integer"
+    },
+    "owned_file_count": {
+      "minimum": 1,
+      "title": "Owned File Count",
+      "type": "integer"
+    },
+    "owned_files": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Owned Files",
+      "type": "array"
+    }
+  },
+  "required": [
+    "dataset_id",
+    "dataset_root",
+    "owned_files",
+    "owned_file_count",
+    "owned_bytes"
+  ],
+  "title": "CleanupPlan",
+  "type": "object"
+}

@@ -1,0 +1,9 @@
+{
+  "dataset_version": "memory-reliability-v1",
+  "cases": [
+    {"id": "memory-4", "rounds": 4, "initial": "预算不超过500元，地区限定上海，而且不要执行写操作。"},
+    {"id": "memory-8", "rounds": 8, "initial": "预算不超过500元，地区限定上海，而且不要执行写操作。"},
+    {"id": "memory-12", "rounds": 12, "initial": "预算不超过500元，地区限定上海，而且不要执行写操作。"},
+    {"id": "memory-16", "rounds": 16, "initial": "预算不超过500元，地区限定上海，而且不要执行写操作。"}
+  ]
+}

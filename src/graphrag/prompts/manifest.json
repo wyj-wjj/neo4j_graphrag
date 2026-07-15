@@ -1,0 +1,15 @@
+{
+  "bundle_version": "prompt-bundle-v1",
+  "prompts": {
+    "agent-safety": {
+      "version": "v1",
+      "file": "agent-safety.v1.txt",
+      "sha256": "c98d1aa92385960dd2e90199c5a5704cbe375bab0e8993fd67ed8b85734fb207"
+    },
+    "rag-answer": {
+      "version": "v1",
+      "file": "rag-answer.v1.txt",
+      "sha256": "be4ef674da7306eb833566c55f77c6f2403f15e6461b1d4d1fc6bedd25596607"
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "candidate_fingerprint": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Candidate Fingerprint",
+      "type": "string"
+    },
+    "candidate_id": {
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "independent_review_ids": {
+      "maxItems": 2,
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "title": "Independent Review Ids",
+      "type": "array"
+    },
+    "is_synthetic": {
+      "const": true,
+      "default": true,
+      "title": "Is Synthetic",
+      "type": "boolean"
+    },
+    "production_slo_eligible": {
+      "const": false,
+      "default": false,
+      "title": "Production Slo Eligible",
+      "type": "boolean"
+    },
+    "promoted_at": {
+      "format": "date-time",
+      "title": "Promoted At",
+      "type": "string"
+    },
+    "quality_tier": {
+      "const": "golden",
+      "default": "golden",
+      "title": "Quality Tier",
+      "type": "string"
+    },
+    "source": {
+      "const": "fake",
+      "default": "fake",
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "candidate_id",
+    "candidate_fingerprint",
+    "independent_review_ids",
+    "promoted_at"
+  ],
+  "title": "GoldenRecord",
+  "type": "object"
+}

@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "dependency": {
+      "enum": [
+        "order",
+        "logistics",
+        "refund",
+        "approval"
+      ],
+      "title": "Dependency",
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "off",
+        "error",
+        "timeout"
+      ],
+      "title": "Mode",
+      "type": "string"
+    }
+  },
+  "required": [
+    "dependency",
+    "mode"
+  ],
+  "title": "FaultControlRequest",
+  "type": "object"
+}

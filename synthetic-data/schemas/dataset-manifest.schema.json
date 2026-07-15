@@ -1,0 +1,193 @@
+{
+  "$defs": {
+    "FileManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "media_type": {
+          "title": "Media Type",
+          "type": "string"
+        },
+        "record_type": {
+          "title": "Record Type",
+          "type": "string"
+        },
+        "records": {
+          "minimum": 0,
+          "title": "Records",
+          "type": "integer"
+        },
+        "relative_path": {
+          "minLength": 1,
+          "title": "Relative Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "relative_path",
+        "media_type",
+        "record_type",
+        "records",
+        "size_bytes",
+        "sha256"
+      ],
+      "title": "FileManifest",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "canaries": {
+      "default": [
+        "CANARY_SECRET_VALUE"
+      ],
+      "items": {
+        "const": "CANARY_SECRET_VALUE",
+        "type": "string"
+      },
+      "title": "Canaries",
+      "type": "array"
+    },
+    "compatibility": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Compatibility",
+      "type": "object"
+    },
+    "dataset_id": {
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "dataset_version": {
+      "const": "synthetic-commerce-v1",
+      "title": "Dataset Version",
+      "type": "string"
+    },
+    "derived_seed_ids": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Derived Seed Ids",
+      "type": "object"
+    },
+    "deterministic_created_at": {
+      "format": "date-time",
+      "title": "Deterministic Created At",
+      "type": "string"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/FileManifest"
+      },
+      "minItems": 1,
+      "title": "Files",
+      "type": "array"
+    },
+    "generator_version": {
+      "title": "Generator Version",
+      "type": "string"
+    },
+    "is_synthetic": {
+      "const": true,
+      "default": true,
+      "title": "Is Synthetic",
+      "type": "boolean"
+    },
+    "manifest_version": {
+      "const": "dataset-manifest-v1",
+      "default": "dataset-manifest-v1",
+      "title": "Manifest Version",
+      "type": "string"
+    },
+    "oracle_version": {
+      "title": "Oracle Version",
+      "type": "string"
+    },
+    "production_slo_eligible": {
+      "const": false,
+      "default": false,
+      "title": "Production Slo Eligible",
+      "type": "boolean"
+    },
+    "profile": {
+      "title": "Profile",
+      "type": "string"
+    },
+    "profile_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Profile Sha256",
+      "type": "string"
+    },
+    "record_counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Record Counts",
+      "type": "object"
+    },
+    "root_seed": {
+      "title": "Root Seed",
+      "type": "integer"
+    },
+    "rules_version": {
+      "title": "Rules Version",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "synthetic-record-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "spec_version": {
+      "const": "phase2-data-spec-v1",
+      "title": "Spec Version",
+      "type": "string"
+    },
+    "status": {
+      "const": "validated",
+      "title": "Status",
+      "type": "string"
+    },
+    "template_version": {
+      "title": "Template Version",
+      "type": "string"
+    },
+    "validation_report": {
+      "const": "validation-report.json",
+      "default": "validation-report.json",
+      "title": "Validation Report",
+      "type": "string"
+    }
+  },
+  "required": [
+    "dataset_id",
+    "dataset_version",
+    "spec_version",
+    "generator_version",
+    "schema_version",
+    "rules_version",
+    "template_version",
+    "oracle_version",
+    "profile",
+    "profile_sha256",
+    "root_seed",
+    "derived_seed_ids",
+    "deterministic_created_at",
+    "status",
+    "files",
+    "record_counts",
+    "compatibility"
+  ],
+  "title": "DatasetManifest",
+  "type": "object"
+}

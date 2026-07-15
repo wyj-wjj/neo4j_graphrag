@@ -1,0 +1,61 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "agents_correct": {
+      "title": "Agents Correct",
+      "type": "boolean"
+    },
+    "answer_status_correct": {
+      "title": "Answer Status Correct",
+      "type": "boolean"
+    },
+    "correct_components": {
+      "maximum": 7,
+      "minimum": 0,
+      "title": "Correct Components",
+      "type": "integer"
+    },
+    "evidence_correct": {
+      "title": "Evidence Correct",
+      "type": "boolean"
+    },
+    "intent_correct": {
+      "title": "Intent Correct",
+      "type": "boolean"
+    },
+    "passed": {
+      "title": "Passed",
+      "type": "boolean"
+    },
+    "side_effect_policy_correct": {
+      "title": "Side Effect Policy Correct",
+      "type": "boolean"
+    },
+    "tenant_isolation_correct": {
+      "title": "Tenant Isolation Correct",
+      "type": "boolean"
+    },
+    "tools_correct": {
+      "title": "Tools Correct",
+      "type": "boolean"
+    },
+    "total_components": {
+      "default": 7,
+      "title": "Total Components",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "intent_correct",
+    "agents_correct",
+    "tools_correct",
+    "evidence_correct",
+    "answer_status_correct",
+    "side_effect_policy_correct",
+    "tenant_isolation_correct",
+    "passed",
+    "correct_components"
+  ],
+  "title": "BehaviorScore",
+  "type": "object"
+}

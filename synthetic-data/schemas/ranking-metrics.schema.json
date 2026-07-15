@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "ndcg_at_k": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Ndcg At K",
+      "type": "number"
+    },
+    "recall_at_k": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Recall At K",
+      "type": "number"
+    },
+    "reciprocal_rank": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Reciprocal Rank",
+      "type": "number"
+    }
+  },
+  "required": [
+    "recall_at_k",
+    "reciprocal_rank",
+    "ndcg_at_k"
+  ],
+  "title": "RankingMetrics",
+  "type": "object"
+}

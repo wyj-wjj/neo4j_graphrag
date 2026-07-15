@@ -1,0 +1,117 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "actor_user_id": {
+      "title": "Actor User Id",
+      "type": "string"
+    },
+    "anomaly": {
+      "enum": [
+        "none",
+        "stale",
+        "wrong_hub",
+        "refused",
+        "lost",
+        "damaged",
+        "returned",
+        "timeout"
+      ],
+      "title": "Anomaly",
+      "type": "string"
+    },
+    "dataset_id": {
+      "maxLength": 160,
+      "minLength": 8,
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "dataset_version": {
+      "const": "synthetic-commerce-v1",
+      "title": "Dataset Version",
+      "type": "string"
+    },
+    "expected_allowed": {
+      "title": "Expected Allowed",
+      "type": "boolean"
+    },
+    "expected_error_code": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Expected Error Code"
+    },
+    "expected_escalation": {
+      "title": "Expected Escalation",
+      "type": "boolean"
+    },
+    "is_synthetic": {
+      "const": true,
+      "default": true,
+      "title": "Is Synthetic",
+      "type": "boolean"
+    },
+    "oracle_case_id": {
+      "title": "Oracle Case Id",
+      "type": "string"
+    },
+    "oracle_version": {
+      "title": "Oracle Version",
+      "type": "string"
+    },
+    "package_id": {
+      "title": "Package Id",
+      "type": "string"
+    },
+    "scenario_id": {
+      "maxLength": 160,
+      "minLength": 8,
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "synthetic-record-v1",
+      "default": "synthetic-record-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "const": "fake",
+      "default": "fake",
+      "title": "Source",
+      "type": "string"
+    },
+    "tenant_id": {
+      "pattern": "^synthetic-[a-z0-9-]+$",
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "urge_attempt": {
+      "maximum": 10,
+      "minimum": 1,
+      "title": "Urge Attempt",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "dataset_id",
+    "dataset_version",
+    "scenario_id",
+    "tenant_id",
+    "oracle_case_id",
+    "actor_user_id",
+    "package_id",
+    "anomaly",
+    "urge_attempt",
+    "expected_allowed",
+    "expected_error_code",
+    "expected_escalation",
+    "oracle_version"
+  ],
+  "title": "LogisticsOracleRecord",
+  "type": "object"
+}

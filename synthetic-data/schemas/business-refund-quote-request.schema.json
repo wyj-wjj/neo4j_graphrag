@@ -1,0 +1,28 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "amount": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0.0,
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d{0,2}0*$",
+          "type": "string"
+        }
+      ],
+      "title": "Amount"
+    },
+    "order_id": {
+      "title": "Order Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "order_id",
+    "amount"
+  ],
+  "title": "RefundQuoteRequest",
+  "type": "object"
+}

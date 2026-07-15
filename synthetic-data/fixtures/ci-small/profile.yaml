@@ -1,0 +1,30 @@
+profile_version: profile-v1
+name: ci-small
+enabled: true
+requires_explicit_large_flag: false
+root_seed: 20260714
+reference_time: 2026-01-01T00:00:00Z
+batch_size: 100
+counts:
+  tenants: 2
+  users: 200
+  products: 80
+  orders: 500
+  conversations: 200
+  knowledge_documents: 50
+  physical_files: 27
+  events: 2000
+  evaluation_cases: 2000
+  security_cases: 5000
+  memory_cases: 500
+  golden_candidates: 300
+  event_deliveries: 2300
+  fault_schedules: 40
+intent_percentages:
+  faq: 20
+  kb: 25
+  order: 15
+  logistics: 15
+  refund: 10
+  escalation: 5
+  multi_intent: 10

@@ -20,6 +20,10 @@ playwright-report/
 test-results/
 data/uploads/*
 !data/uploads/.gitkeep
+synthetic-data/generated/
+synthetic-data/packages/
+synthetic-data/**/.ci-small.tmp-*/
+synthetic-data/synthetic-data/
 volumes/
 .idea/
 .vscode/
