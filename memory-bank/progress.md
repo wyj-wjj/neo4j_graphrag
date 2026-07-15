@@ -18,7 +18,7 @@
 | 11.1–11.11 Agent/Tool | 完成 | 全 Agent 路径、Tool 审计、Fake 边界、Checkpoint 持久化 |
 | 12.1–12.9 API | 完成 | OpenAPI、JWT/RBAC、REST、SSE、回调、统一错误验收 |
 | 13.1–13.8 前端 | 无障碍修复完成/浏览器待 CI 重验 | Progress 可访问名称、7.00:1 占位符对比度；ESLint、Vitest、构建通过 |
-| 14.1–14.12 交付 | CI 首轮问题已修复/待重验 | Neo4j 镜像、Trivy Action、axe 问题已修复，等待完整 CI |
+| 14.1–14.12 交付 | CI 第二轮问题已修复/待重验 | Milvus 官方配套、Trivy Action 与 E2E 总超时已修复 |
 
 ## 已完成实现
 
@@ -51,6 +51,8 @@
   缺少 `v` 前缀，以及 Progress 无可访问名称和占位文字对比度不足。
 - CI 修复本地验证：Compose/Workflow YAML 与固定版本断言通过；占位文字对比度为 7.00:1；
   Playwright 成功收集 1 条端到端测试，完整浏览器执行交由 CI 重验。
+- GitHub CI 第二轮确认 backend、secrets 持续通过；剩余问题定位为 E2E 默认总超时、Milvus
+  Standalone 配套配置偏差，以及旧 Trivy Action 内置二进制安装失败。修复保持测试断言和安全门槛不变。
 
 ## 环境阻塞与补跑入口
 

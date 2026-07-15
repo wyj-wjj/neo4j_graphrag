@@ -231,7 +231,9 @@ DashScope SDK 仅用于 OpenAI 兼容接口没有覆盖的特定多模态能力�
 
 ### 5.2 Milvus 2.6.x
 
-使用 Milvus `2.6.14` Standalone 和匹配的 PyMilvus `2.6.11`。不采用 `3.0-beta`，因为项目目标是稳定 MVP，不需要测试版存储架构。
+使用 Milvus `2.6.14` Standalone 和匹配的 PyMilvus `2.6.11`。Compose 同步采用该版本官方
+Standalone 配套的 etcd `3.5.25`、MinIO `RELEASE.2024-12-18T13-15-44Z` 与 Woodpecker MQ。
+不采用 `3.0-beta`，因为项目目标是稳定 MVP，不需要测试版存储架构。
 
 Collection 建议：
 
@@ -448,7 +450,7 @@ Playwright
 - `pip-audit`：Python 依赖漏洞。
 - `pnpm audit`：前端依赖。
 - Gitleaks：阻止密钥进入 Git。
-- Trivy：容器镜像和文件系统扫描。
+- Trivy Action `v0.36.0`：容器镜像和文件系统扫描；因旧版内置二进制安装在当前 Runner 失败而升级。
 - 依赖升级由 Renovate/Dependabot 提 PR，测试通过后合并，不自动追最新版。
 
 ## 11. Docker 与部署
