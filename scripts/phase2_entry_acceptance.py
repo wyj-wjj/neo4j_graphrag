@@ -96,8 +96,7 @@ def main() -> None:
     failed = [
         item
         for item in upload_results
-        if not isinstance(item.get("task"), dict)
-        or item["task"].get("status") != "completed"
+        if not isinstance(item.get("task"), dict) or item["task"].get("status") != "completed"
     ]
     if failed:
         raise RuntimeError(f"{len(failed)} uploads did not reach completed")

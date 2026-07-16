@@ -139,7 +139,7 @@ services:
       retries: 20
 
   backend:
-    profiles: ["app"]
+    profiles: ["app", "phase2"]
     build:
       context: .
       dockerfile: Dockerfile

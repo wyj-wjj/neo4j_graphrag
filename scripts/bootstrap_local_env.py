@@ -20,8 +20,7 @@ def _render(template: str) -> str:
         "USE_FAKE_EXTERNAL_CLIENTS": "false",
         "JWT_DEV_SECRET": _secret(32),
         "DATABASE_URL": (
-            "mysql+aiomysql://app_user:"
-            f"{mysql_app_password}@127.0.0.1:3306/enterprise_agent_db"
+            f"mysql+aiomysql://app_user:{mysql_app_password}@127.0.0.1:3306/enterprise_agent_db"
         ),
         "MYSQL_APP_PASSWORD": mysql_app_password,
         "MYSQL_ROOT_PASSWORD": _secret(),
