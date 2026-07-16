@@ -5,14 +5,17 @@ from __future__ import annotations
 import hashlib
 import os
 
+import boto3
 import pytest
 
+from graphrag.domain.errors import NotFoundError
 from graphrag.domain.ids import new_id
 from graphrag.domain.models import ChunkRecord, Entity, GraphExtraction
 from graphrag.domain.state import AgentState
 from graphrag.infrastructure.database import Database
 from graphrag.infrastructure.milvus_adapter import MilvusVectorStore
 from graphrag.infrastructure.neo4j_adapter import Neo4jGraphStore
+from graphrag.infrastructure.object_store import S3ObjectStore
 from graphrag.infrastructure.redis_adapter import RedisAdapter
 
 pytestmark = pytest.mark.skipif(
@@ -98,3 +101,48 @@ async def test_pinned_mysql_redis_milvus_and_neo4j_adapters() -> None:
         await vector.close()
         await redis.close()
         await database.close()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_isolated_s3_compatible_original_file_store() -> None:
+    bucket = f"integration-{new_id()}"
+    client = boto3.client(
+        "s3",
+        endpoint_url=os.environ["TEST_S3_ENDPOINT_URL"],
+        aws_access_key_id=os.environ["TEST_S3_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["TEST_S3_SECRET_ACCESS_KEY"],
+        region_name="us-east-1",
+    )
+    client.create_bucket(Bucket=bucket)
+    store = S3ObjectStore(
+        bucket=bucket,
+        region="us-east-1",
+        endpoint_url=os.environ["TEST_S3_ENDPOINT_URL"],
+        access_key_id=os.environ["TEST_S3_ACCESS_KEY_ID"],
+        secret_access_key=os.environ["TEST_S3_SECRET_ACCESS_KEY"],
+        session_token=None,
+        force_path_style=True,
+        verify_tls=True,
+        sse_algorithm=None,
+        kms_key_id=None,
+        client=client,
+    )
+    try:
+        key, _ = await store.save("integration", new_id(), "policy.txt", b"integration object")
+        assert await store.read("integration", key) == b"integration object"
+        with pytest.raises(NotFoundError):
+            await store.read("other-tenant", key)
+        await store.delete("integration", key)
+        await store.delete("integration", key)
+    finally:
+        await store.close()
+        cleanup = boto3.client(
+            "s3",
+            endpoint_url=os.environ["TEST_S3_ENDPOINT_URL"],
+            aws_access_key_id=os.environ["TEST_S3_ACCESS_KEY_ID"],
+            aws_secret_access_key=os.environ["TEST_S3_SECRET_ACCESS_KEY"],
+            region_name="us-east-1",
+        )
+        cleanup.delete_bucket(Bucket=bucket)
+        cleanup.close()

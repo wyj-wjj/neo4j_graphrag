@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
@@ -16,6 +17,7 @@ from langgraph.errors import GraphInterrupt
 from langgraph.graph import END, StateGraph
 from langgraph.types import Command, interrupt
 
+from graphrag.agents.consolidation import DeterministicResultConsolidator
 from graphrag.application.context import ContextAssembler, ConversationMemoryManager
 from graphrag.application.prompts import PromptRegistry
 from graphrag.config import Settings
@@ -31,6 +33,7 @@ from graphrag.domain.ids import new_id
 from graphrag.domain.models import (
     ActionDraft,
     AgentIntent,
+    AgentOutcome,
     AnswerStatus,
     ApprovalResumeResult,
     ChatMessage,
@@ -48,6 +51,7 @@ from graphrag.domain.models import (
 )
 from graphrag.domain.ports import (
     AuditPort,
+    BusinessServicesPort,
     CheckpointStorePort,
     KnowledgeRepositoryPort,
     RouterPort,
@@ -55,7 +59,6 @@ from graphrag.domain.ports import (
     TracePort,
 )
 from graphrag.domain.state import AgentState
-from graphrag.infrastructure.fakes import FakeBusinessServices
 from graphrag.retrieval.pipeline import GraphRAGPipeline
 from graphrag.tools.executor import ToolExecutor
 
@@ -77,7 +80,7 @@ class AgentOrchestrator:
     repository: KnowledgeRepositoryPort
     checkpoint: CheckpointStorePort
     retrieval: GraphRAGPipeline
-    business: FakeBusinessServices
+    business: BusinessServicesPort
     faqs: tuple[FAQItem, ...]
     trace: TracePort
     graph_checkpointer: Any
@@ -89,6 +92,9 @@ class AgentOrchestrator:
     prompt_registry: PromptRegistry
     router: RouterPort
     graph: Any = field(init=False, repr=False)
+    consolidator: DeterministicResultConsolidator = field(
+        default_factory=DeterministicResultConsolidator
+    )
 
     def __post_init__(self) -> None:
         self.graph = self._build_graph()
@@ -100,6 +106,10 @@ class AgentOrchestrator:
         graph.add_node("kb", self._instrument("kb", self._kb))
         graph.add_node("order", self._instrument("order", self._order))
         graph.add_node("logistics", self._instrument("logistics", self._logistics))
+        graph.add_node(
+            "compound",
+            self._instrument("compound", self._order_logistics),
+        )
         graph.add_node("refund", self._instrument("refund", self._refund))
         graph.add_node(
             "approval_interrupt",
@@ -116,13 +126,22 @@ class AgentOrchestrator:
                 "kb": "kb",
                 "order": "order",
                 "logistics": "logistics",
+                "compound": "compound",
                 "refund": "refund",
                 "escalation": "escalation",
                 "clarify": "clarify",
             },
         )
         graph.add_edge("refund", "approval_interrupt")
-        for node in ("faq", "kb", "order", "logistics", "escalation", "clarify"):
+        for node in (
+            "faq",
+            "kb",
+            "order",
+            "logistics",
+            "compound",
+            "escalation",
+            "clarify",
+        ):
             graph.add_edge(node, END)
         graph.add_edge("approval_interrupt", END)
         return graph.compile(checkpointer=self.graph_checkpointer)
@@ -345,7 +364,13 @@ class AgentOrchestrator:
             intent=intent,
             citations=final.citations,
             source=SourceKind.FAKE
-            if intent in {AgentIntent.ORDER, AgentIntent.LOGISTICS, AgentIntent.REFUND}
+            if intent
+            in {
+                AgentIntent.ORDER,
+                AgentIntent.LOGISTICS,
+                AgentIntent.REFUND,
+                AgentIntent.COMPOUND,
+            }
             else SourceKind.REAL,
             open_questions=final.conversation_state.open_questions
             if final.conversation_state is not None
@@ -491,18 +516,30 @@ class AgentOrchestrator:
                 )
                 return {"next_agent": AgentIntent.ESCALATION, "needs_human": True}
             decision = self.router.route(state.query)
+            plan = self.router.plan(state.query)
+            compound_allowed = (
+                len(decision.candidates) == 2
+                and len(plan.steps) == 2
+                and all(step.read_only for step in plan.steps)
+                and {step.intent for step in plan.steps}
+                == {AgentIntent.ORDER, AgentIntent.LOGISTICS}
+            )
+            selected_intent = AgentIntent.COMPOUND if compound_allowed else decision.intent
             await self._emit_event(
                 "route",
                 {
-                    "intent": decision.intent.value,
+                    "intent": selected_intent.value,
                     "confidence": decision.confidence,
                     "reason": decision.reason,
                     "candidates": [item.intent.value for item in decision.candidates],
                     "router_version": decision.router_version,
+                    "plan_version": plan.plan_version,
+                    "plan_steps": [item.intent.value for item in plan.steps],
+                    "compound_allowed": compound_allowed,
                 },
             )
             return {
-                "next_agent": decision.intent,
+                "next_agent": selected_intent,
                 "confidence": decision.confidence,
                 "iteration": 1,
             }
@@ -618,6 +655,51 @@ class AgentOrchestrator:
         )
         return {
             "final_answer": f"[Fake 数据] 物流状态：{info.status}；" + "；".join(info.events),
+            "confidence": 1.0,
+        }
+
+    async def _order_logistics(self, state: AgentState) -> dict[str, Any]:
+        identity = self._identity(state)
+        order_id = self._extract_order_id(state.query)
+        order, logistics = await asyncio.gather(
+            self.tool_executor.invoke(
+                "order.query.v1",
+                identity,
+                agent="order",
+                run_id=state.run_id,
+                payload={"query": state.query},
+                handler=lambda: self.business.query(identity, order_id),
+            ),
+            self.tool_executor.invoke(
+                "logistics.query.v1",
+                identity,
+                agent="logistics",
+                run_id=state.run_id,
+                payload={"query": state.query},
+                handler=lambda: self.business.query_logistics(identity, order_id),
+            ),
+        )
+        result = self.consolidator.consolidate_complementary(
+            (
+                AgentOutcome(
+                    intent=AgentIntent.ORDER,
+                    answer=(
+                        f"[Fake 数据] 订单 {order.order_id} 状态：{order.status}，"
+                        f"地址：{order.masked_address}"
+                    ),
+                    authority_rank=300,
+                ),
+                AgentOutcome(
+                    intent=AgentIntent.LOGISTICS,
+                    answer=f"[Fake 数据] 物流状态：{logistics.status}；"
+                    + "；".join(logistics.events),
+                    authority_rank=300,
+                ),
+            )
+        )
+        return {
+            "final_answer": result.answer,
+            "citations": result.citations,
             "confidence": 1.0,
         }
 

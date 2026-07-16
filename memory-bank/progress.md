@@ -1,7 +1,7 @@
-# 阶段一实施进度
+# 项目实施进度
 
-> 更新时间：2026-07-14。阶段一代码、离线测试、真实依赖集成、浏览器端到端、无障碍和供应链
-> 验收均已通过；生产百炼、真实业务 API 与审批执行仍属于受控上线或阶段二范围。
+> 更新时间：2026-07-15。阶段一与阶段 1.5 已完成；阶段二首批基础设施、对象存储、合成 HTTP 适配和
+> 只读双专家已实现。真实大数据入口验收、Kafka Broker、真实业务契约与生产审批仍未完成。
 
 ## 总览
 
@@ -30,6 +30,11 @@
 | 2.3 评测与安全治理 | 完成离线基线 | 2,000 Silver、5,000 Security、500 Memory、300 Candidate、评分与双人审核门禁 |
 | 2.4 事件与清理 | 完成离线基线 | 2,300 次投递、Inbox/DLQ 重放 Oracle、资源估算、Manifest dry-run/确认清理 |
 | 2.5 大规模与全链路 | 部分完成 | dev/failure 已流式物化并独立验收；staging、Kafka、真实依赖与 GraphRAG 待完成 |
+| 2.6 Outbox/Kafka 发布 | 完成代码/待真实 Broker | 租约、单聚合顺序、退避、Broker ACK、受控 Topic、运行时开关 |
+| 2.7 Inbox/DLQ/消费者 | 完成核心/待重放管理面 | 消费者级幂等、Hash 冲突、stale、未知版本、DLQ、offset 终态提交、独立索引 Worker 入口 |
+| 2.8 S3 对象存储 | 完成代码/待当前分支 CI | 独立 MinIO Profile、租户前缀、Hash、SSE/KMS、真实集成测试 |
+| 2.9 业务 HTTP Adapter | 完成合成契约 | Fake Envelope、租户/用户复核、读重试/写不重试；真实 OpenAPI 未提供 |
+| 2.10 受控双专家 | 完成首个只读组合 | 仅订单查询+物流查询，恰好两意图、固定预算、确定性互补收敛 |
 
 ## 已完成实现
 
@@ -48,7 +53,14 @@
 
 ## 最新验证结果
 
-最终验收命令执行后更新本节；当前已确认：
+- 阶段二首批增量：Ruff 与 mypy strict（75 个源码文件）通过；pytest 125 通过、2 个真实依赖测试因当前
+  环境无 Docker 跳过；分支覆盖率 82.72%，高于 80% 门槛。已覆盖 Outbox 单聚合顺序、Broker ACK、Inbox
+  租约/重复/Hash 冲突/stale、未知版本与无效 Envelope DLQ、Kafka offset 终态提交、MySQL 驱动的向量/图
+  Handler 幂等重建、S3 租户与完整性、合成 HTTP 响应隔离、只读订单+物流 Compound，以及写意图禁止进入
+  Compound。`uv lock --check`、Compose/Workflow YAML 解析和 `git diff --check` 通过；Compose 共 12 个服务，
+  Workflow 共 6 个 Job。
+- 本窗口 `pip-audit` 已使用可写缓存重新启动，但访问 PyPI 超时，未获得新的漏洞结论；基线主分支的安全
+  Job 已通过，当前分支新增依赖仍须由 GitHub CI 的联网审计确认。
 
 - 阶段 1.5 里程碑 A–E 本地增量验收：pytest 96 通过、1 个真实依赖测试因当前环境无 Docker 跳过；
   新增内存/SQL 并发、重复请求、取消重试、消息顺序、迁移、API 回放、Token 预算、摘要/结构状态、
@@ -121,7 +133,7 @@
 
 ## 本地环境限制与 CI 覆盖
 
-1. 当前工作区没有 `docker`/`podman`；GitHub Actions 已实际运行 MySQL 8.4、Redis 8.2、Milvus 2.6、
+1. 当前工作区没有 `docker`/`podman`；基线 GitHub Actions 已实际运行 MySQL 8.4、Redis 8.2、Milvus 2.6、
    Neo4j 5.26.28、容器健康检查、迁移、真实 Adapter、镜像构建和 Trivy，结果通过。
 2. 当前工作区的 Chromium 下载受限；GitHub Actions 已安装固定 Playwright Chromium 并完成 E2E 与 axe，结果通过。
 3. 未使用真实百炼密钥，符合 CI 禁止收费模型要求；生产前必须运行受控云模型评测与容量测试。
@@ -132,8 +144,13 @@
   同时保持 `staging-large` 关闭，直到核心事实也改为磁盘工作集并完成单独容量验收。
 - 在可达的真实 MySQL/Milvus/Neo4j 开发环境复验正式上传与 Evidence Anchor 映射；之后执行派生索引销毁
   重建和完整 GraphRAG 评测。
-- Kafka Relay、消费者、DLQ 修复审计和真实业务 HTTP Adapter 尚未实现；当前模拟器与离线事件 Oracle
-  只提供稳定契约和测试数据，不代表生产阶段二基础设施已完成。
+- Kafka Relay、Consumer/Inbox/DLQ 核心、修复审计表、独立 Worker 和本地单 Broker Compose 已实现；仍需
+  在本地/自托管 Runner 实际运行 Broker，多实例/Rebalance/重启、管理面修复/重放 API 和 `failure-lab`
+  终态对账尚未完成。本地单节点 PLAINTEXT 配置不代表生产 Kafka 已部署。
+- 已新增逐命令本地部署手册、随机开发密钥引导和指定租户的 MySQL→Milvus/Neo4j 重建工具；重建默认
+  dry-run，执行时要求租户确认并核对两个派生索引的 Chunk ID 集合。
+- S3 与合成业务 HTTP Adapter 已实现；真实业务 OpenAPI、服务身份、审批矩阵、执行/对账和补偿契约未提供，
+  因而 staging/prod 保持 fail-closed。
 - 合成数据只能用于工程、安全和容量趋势验证；调整上下文比例、启用模型 Router、真实双专家执行和真实
   业务写入仍需受控评测及相应真实契约。
 - 生产部署前仍需提供真实 JWKS、轮换后的数据库/Redis/Neo4j/MinIO 密码和百炼密钥，且不得提交这些值。

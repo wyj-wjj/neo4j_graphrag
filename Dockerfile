@@ -16,6 +16,8 @@ WORKDIR /app
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --chown=app:app src ./src
 COPY --chown=app:app alembic alembic.ini ./
+COPY --chown=app:app scripts/ensure_s3_bucket.py ./scripts/ensure_s3_bucket.py
+COPY --chown=app:app scripts/rebuild_derived_indexes.py ./scripts/rebuild_derived_indexes.py
 RUN mkdir -p /app/data/uploads && chown -R app:app /app/data
 USER app
 EXPOSE 8000

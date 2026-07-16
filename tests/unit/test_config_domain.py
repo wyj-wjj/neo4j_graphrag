@@ -6,7 +6,13 @@ import pytest
 from pydantic import SecretStr
 from pydantic import ValidationError as PydanticValidationError
 
-from graphrag.config import AppEnvironment, Settings
+from graphrag.config import (
+    AppEnvironment,
+    BusinessAdapterMode,
+    KafkaSecurityProtocol,
+    ObjectStoreBackend,
+    Settings,
+)
 from graphrag.domain.events import EventEnvelope
 from graphrag.domain.ids import new_id, validate_id
 from graphrag.domain.models import AgentIntent, IdentityContext, utc_now
@@ -39,6 +45,43 @@ def test_production_requires_asymmetric_auth_and_real_credentials() -> None:
             database_url="mysql+aiomysql://app@db/app",
             jwt_algorithm="HS256",
         )
+
+
+def test_kafka_and_outbox_configuration_fail_closed() -> None:
+    with pytest.raises(PydanticValidationError, match="KAFKA_BOOTSTRAP_SERVERS"):
+        Settings(kafka_enabled=True)
+    with pytest.raises(PydanticValidationError, match="requires KAFKA_ENABLED"):
+        Settings(outbox_relay_enabled=True)
+    with pytest.raises(PydanticValidationError, match="SASL Kafka"):
+        Settings(
+            kafka_enabled=True,
+            kafka_bootstrap_servers="broker:9092",
+            kafka_security_protocol=KafkaSecurityProtocol.SASL_SSL,
+        )
+    with pytest.raises(PydanticValidationError, match="must exceed"):
+        Settings(kafka_publish_timeout_seconds=30, outbox_lease_seconds=30)
+
+
+def test_s3_configuration_requires_bucket_credentials_and_kms_key() -> None:
+    with pytest.raises(PydanticValidationError, match="S3_BUCKET"):
+        Settings(object_store_backend=ObjectStoreBackend.S3)
+    with pytest.raises(PydanticValidationError, match="configured together"):
+        Settings(
+            object_store_backend=ObjectStoreBackend.S3,
+            s3_bucket="knowledge",
+            s3_access_key_id="access-only",
+        )
+    with pytest.raises(PydanticValidationError, match="S3_KMS_KEY_ID"):
+        Settings(
+            object_store_backend=ObjectStoreBackend.S3,
+            s3_bucket="knowledge",
+            s3_sse_algorithm="aws:kms",
+        )
+
+
+def test_synthetic_business_adapter_requires_explicit_dev_test_endpoint() -> None:
+    with pytest.raises(PydanticValidationError, match="SYNTHETIC_BUSINESS_BASE_URL"):
+        Settings(business_adapter_mode=BusinessAdapterMode.SYNTHETIC_HTTP)
 
 
 def test_event_round_trip_and_strict_contract() -> None:

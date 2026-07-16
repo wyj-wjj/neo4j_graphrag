@@ -59,6 +59,7 @@ class FakeMilvusClient:
         self.upserts: list[dict[str, Any]] = []
         self.last_search_kwargs: dict[str, Any] = {}
         self.last_query_kwargs: dict[str, Any] = {}
+        self.last_delete_kwargs: dict[str, Any] = {}
         self.closed = False
 
     def has_collection(self, _name: str) -> bool:
@@ -84,8 +85,8 @@ class FakeMilvusClient:
         self.last_search_kwargs = kwargs
         return [[{"entity": {"chunk_id": "chunk-1"}, "distance": 0.9}]]
 
-    def delete(self, **_kwargs: Any) -> None:
-        return None
+    def delete(self, **kwargs: Any) -> None:
+        self.last_delete_kwargs = kwargs
 
     def query(self, **kwargs: Any) -> list[dict[str, str]]:
         self.last_query_kwargs = kwargs
@@ -119,6 +120,8 @@ async def test_milvus_schema_crud_and_dimension_guard() -> None:
     assert client.last_query_kwargs["consistency_level"] == "Strong"
     await store.delete("default", ["chunk-1"])
     await store.delete("default", [])
+    await store.delete_tenant("default")
+    assert client.last_delete_kwargs["filter"] == 'tenant_id == "default"'
     await store.close()
     assert client.closed
     with pytest.raises(ValueError):
@@ -274,6 +277,8 @@ async def test_neo4j_schema_upsert_bounded_search_delete_and_list() -> None:
     with pytest.raises(ValueError):
         await store.search("default", ["policy"], max_hops=3, top_k=5)
     await store.delete_document_version("default", "version-1")
+    await store.delete_tenant("default")
+    assert any("DETACH DELETE n" in query for query in driver.session_instance.queries)
     assert await store.list_chunk_ids("default") == {"chunk-1"}
     await store.close()
     assert driver.closed

@@ -8,7 +8,7 @@ from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
 
-from graphrag.domain.events import EventEnvelope
+from graphrag.domain.events import EventEnvelope, InboxClaimResult, OutboxRecord
 from graphrag.domain.models import (
     ActionDraft,
     AgentExecutionPlan,
@@ -168,6 +168,10 @@ class RouterPort(Protocol):
 class ResultConsolidatorPort(Protocol):
     def consolidate(self, outcomes: Sequence[AgentOutcome]) -> ConsolidatedOutcome: ...
 
+    def consolidate_complementary(
+        self, outcomes: Sequence[AgentOutcome]
+    ) -> ConsolidatedOutcome: ...
+
 
 @runtime_checkable
 class SafeResumeStorePort(Protocol):
@@ -301,6 +305,88 @@ class EventPublisherPort(Protocol):
 
 
 @runtime_checkable
+class OutboxStorePort(Protocol):
+    async def claim(
+        self,
+        *,
+        worker_id: str,
+        limit: int,
+        lease_seconds: int,
+    ) -> list[OutboxRecord]: ...
+
+    async def mark_published(
+        self,
+        event_id: str,
+        *,
+        worker_id: str,
+        published_at: datetime,
+    ) -> None: ...
+
+    async def release_for_retry(
+        self,
+        event_id: str,
+        *,
+        worker_id: str,
+        available_at: datetime,
+        error_code: str,
+    ) -> None: ...
+
+
+@runtime_checkable
+class InboxStorePort(Protocol):
+    async def claim(
+        self,
+        *,
+        consumer_name: str,
+        event: EventEnvelope,
+        payload_hash: str,
+        worker_id: str,
+        lease_seconds: int,
+    ) -> InboxClaimResult: ...
+
+    async def mark_processed(
+        self,
+        *,
+        consumer_name: str,
+        event_id: str,
+        worker_id: str,
+        processed_at: datetime,
+    ) -> None: ...
+
+    async def release_for_retry(
+        self,
+        *,
+        consumer_name: str,
+        event_id: str,
+        worker_id: str,
+        available_at: datetime,
+        error_code: str,
+    ) -> None: ...
+
+    async def move_to_dlq(
+        self,
+        *,
+        consumer_name: str,
+        event: EventEnvelope,
+        payload_hash: str,
+        raw_payload: bytes,
+        worker_id: str,
+        failure_kind: str,
+        error_code: str,
+    ) -> None: ...
+
+    async def record_invalid(
+        self,
+        *,
+        consumer_name: str,
+        payload_hash: str,
+        raw_payload: bytes,
+        failure_kind: str,
+        error_code: str,
+    ) -> None: ...
+
+
+@runtime_checkable
 class AuthorizationPort(Protocol):
     async def require_roles(self, identity: IdentityContext, *roles: str) -> None: ...
 
@@ -330,7 +416,7 @@ class OrderServicePort(Protocol):
 
 @runtime_checkable
 class LogisticsServicePort(Protocol):
-    async def query(self, identity: IdentityContext, order_id: str) -> LogisticsInfo: ...
+    async def query_logistics(self, identity: IdentityContext, order_id: str) -> LogisticsInfo: ...
 
     async def create_urge_draft(
         self, identity: IdentityContext, order_id: str, idempotency_key: str
@@ -354,3 +440,13 @@ class RefundServicePort(Protocol):
 @runtime_checkable
 class ApprovalPort(Protocol):
     async def submit_fake(self, draft: ActionDraft) -> str: ...
+
+
+@runtime_checkable
+class BusinessServicesPort(
+    OrderServicePort,
+    LogisticsServicePort,
+    RefundServicePort,
+    Protocol,
+):
+    """Combined boundary currently consumed by the orchestrator."""

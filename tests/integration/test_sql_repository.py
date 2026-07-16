@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
+from scripts.rebuild_derived_indexes import _active_events
 from sqlalchemy import select
 
+from graphrag.application.consumer import EventConsumerProcessor
 from graphrag.application.context import ContextAssembler, ContextPolicy, HeuristicTokenEstimator
+from graphrag.application.index_workers import GraphIndexEventHandler, VectorIndexEventHandler
 from graphrag.application.sessions import TurnDisposition
 from graphrag.domain.errors import ConflictError, NotFoundError
 from graphrag.domain.events import EventEnvelope
@@ -38,7 +42,9 @@ from graphrag.infrastructure.database import (
     ChunkACLORM,
     ContextManifestORM,
     Database,
+    DeadLetterEventORM,
     GenerationManifestORM,
+    InboxEventORM,
     LongTermMemoryORM,
     MessageORM,
     OutboxEventORM,
@@ -46,6 +52,10 @@ from graphrag.infrastructure.database import (
     SQLKnowledgeRepository,
     ToolCallLogORM,
 )
+from graphrag.infrastructure.fakes import FakeModelProvider
+from graphrag.infrastructure.inbox import SQLInboxStore
+from graphrag.infrastructure.memory import InMemoryGraphStore, InMemoryVectorStore
+from graphrag.infrastructure.outbox import SQLOutboxStore
 from graphrag.infrastructure.sql_services import (
     SQLAudit,
     SQLLongTermMemoryStore,
@@ -174,6 +184,272 @@ async def test_sql_truth_source_outbox_acl_and_deny_priority(database: Database)
         outbox_count = len((await session.scalars(select(OutboxEventORM))).all())
         assert outbox_count == 2
     assert await repository.authorize_chunks(identity, [chunk.chunk_id]) == []
+
+
+@pytest.mark.asyncio
+async def test_sql_outbox_lease_ack_and_retry_are_owner_guarded(database: Database) -> None:
+    repository = SQLKnowledgeRepository(database)
+    await create_knowledge(repository)
+    store = SQLOutboxStore(database)
+
+    first = (await store.claim(worker_id="relay-a", limit=1, lease_seconds=30))[0]
+    claimed_by_other = await store.claim(worker_id="relay-b", limit=10, lease_seconds=30)
+    assert claimed_by_other == []
+
+    await store.mark_published(
+        first.event.event_id,
+        worker_id="relay-a",
+        published_at=utc_now(),
+    )
+    second = (await store.claim(worker_id="relay-b", limit=10, lease_seconds=30))[0]
+    retry_at = utc_now() + timedelta(seconds=10)
+    await store.release_for_retry(
+        second.event.event_id,
+        worker_id="relay-b",
+        available_at=retry_at,
+        error_code="broker_unavailable",
+    )
+
+    async with database.session() as session:
+        first_row = await session.get(OutboxEventORM, first.event.event_id)
+        second_row = await session.get(OutboxEventORM, second.event.event_id)
+        assert first_row is not None and first_row.published is True
+        assert first_row.published_at is not None and first_row.lease_owner is None
+        assert second_row is not None and second_row.retry_count == 1
+        assert second_row.last_error_code == "broker_unavailable"
+        assert second_row.lease_owner is None
+
+    assert await store.claim(worker_id="relay-c", limit=10, lease_seconds=30) == []
+
+    with pytest.raises(ConflictError):
+        await store.mark_published(
+            second.event.event_id,
+            worker_id="relay-a",
+            published_at=utc_now(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_sql_outbox_orders_aggregate_versions_before_timestamps(
+    database: Database,
+) -> None:
+    aggregate_id = new_id()
+    now = utc_now()
+    first = EventEnvelope(
+        event_type="document.received",
+        aggregate_version=1,
+        tenant_id="default",
+        aggregate_id=aggregate_id,
+        occurred_at=now,
+        trace_id=new_id(),
+    )
+    clock_skewed_second = EventEnvelope(
+        event_type="document.chunked",
+        aggregate_version=2,
+        tenant_id="default",
+        aggregate_id=aggregate_id,
+        occurred_at=now - timedelta(minutes=5),
+        trace_id=new_id(),
+    )
+    async with database.session() as session:
+        session.add_all(
+            [
+                OutboxEventORM(
+                    **first.model_dump(mode="python"),
+                    published=False,
+                    retry_count=0,
+                ),
+                OutboxEventORM(
+                    **clock_skewed_second.model_dump(mode="python"),
+                    published=False,
+                    retry_count=0,
+                ),
+            ]
+        )
+
+    store = SQLOutboxStore(database)
+    claimed_first = (await store.claim(worker_id="relay-a", limit=10, lease_seconds=30))[0]
+    assert claimed_first.event.event_id == first.event_id
+    await store.mark_published(
+        first.event_id,
+        worker_id="relay-a",
+        published_at=utc_now(),
+    )
+    claimed_second = (await store.claim(worker_id="relay-b", limit=10, lease_seconds=30))[0]
+    assert claimed_second.event.event_id == clock_skewed_second.event_id
+
+
+@pytest.mark.asyncio
+async def test_sql_inbox_claim_is_consumer_scoped_leased_and_hash_guarded(
+    database: Database,
+) -> None:
+    store = SQLInboxStore(database)
+    event = EventEnvelope(
+        event_type="document.chunked",
+        tenant_id="default",
+        aggregate_id=new_id(),
+        trace_id=new_id(),
+    )
+    raw = event.model_dump_json().encode()
+    payload_hash = hashlib.sha256(raw).hexdigest()
+
+    claimed = await store.claim(
+        consumer_name="embedding-worker",
+        event=event,
+        payload_hash=payload_hash,
+        worker_id="worker-a",
+        lease_seconds=30,
+    )
+    busy = await store.claim(
+        consumer_name="embedding-worker",
+        event=event,
+        payload_hash=payload_hash,
+        worker_id="worker-b",
+        lease_seconds=30,
+    )
+    other_consumer = await store.claim(
+        consumer_name="kg-worker",
+        event=event,
+        payload_hash=payload_hash,
+        worker_id="worker-b",
+        lease_seconds=30,
+    )
+    assert claimed.disposition == "claimed"
+    assert busy.disposition == "busy"
+    assert other_consumer.disposition == "claimed"
+
+    await store.mark_processed(
+        consumer_name="embedding-worker",
+        event_id=event.event_id,
+        worker_id="worker-a",
+        processed_at=utc_now(),
+    )
+    duplicate = await store.claim(
+        consumer_name="embedding-worker",
+        event=event,
+        payload_hash=payload_hash,
+        worker_id="worker-c",
+        lease_seconds=30,
+    )
+    assert duplicate.disposition == "duplicate"
+    with pytest.raises(ConflictError, match="不同载荷"):
+        await store.claim(
+            consumer_name="embedding-worker",
+            event=event,
+            payload_hash="f" * 64,
+            worker_id="worker-c",
+            lease_seconds=30,
+        )
+
+
+@pytest.mark.asyncio
+async def test_consumer_processor_deduplicates_and_dlqs_unknown_or_invalid_events(
+    database: Database,
+) -> None:
+    store = SQLInboxStore(database)
+    handled: list[str] = []
+
+    async def handle(event: EventEnvelope) -> None:
+        handled.append(event.event_id)
+
+    processor = EventConsumerProcessor(
+        consumer_name="embedding-worker",
+        store=store,
+        handler=handle,
+        supported_event_version=1,
+        max_event_bytes=1024 * 1024,
+        lease_seconds=30,
+        handler_timeout_seconds=10,
+        max_attempts=3,
+        retry_base_seconds=1,
+        retry_max_seconds=10,
+        worker_id="worker-a",
+    )
+    event = EventEnvelope(
+        event_type="document.chunked",
+        tenant_id="default",
+        aggregate_id=new_id(),
+        trace_id=new_id(),
+    )
+    raw = event.model_dump_json().encode()
+    assert (await processor.process(raw)).outcome == "processed"
+    assert (await processor.process(raw)).outcome == "duplicate"
+    assert handled == [event.event_id]
+
+    unknown = event.model_copy(update={"event_id": new_id(), "event_version": 2})
+    assert (await processor.process(unknown.model_dump_json().encode())).outcome == "dlq"
+    assert (await processor.process(b"not-json")).outcome == "dlq"
+
+    async with database.session() as session:
+        inbox = (await session.scalars(select(InboxEventORM))).all()
+        dlq = (await session.scalars(select(DeadLetterEventORM))).all()
+        assert {row.status for row in inbox} == {"processed", "dlq"}
+        assert {row.failure_kind for row in dlq} == {
+            "unknown_event_version",
+            "invalid_envelope",
+        }
+
+
+@pytest.mark.asyncio
+async def test_index_event_handlers_rebuild_from_mysql_idempotently(database: Database) -> None:
+    repository = SQLKnowledgeRepository(database)
+    document, version, _, chunk = await create_knowledge(repository)
+    provider = FakeModelProvider(dimension=4, version="v1")
+    vector = InMemoryVectorStore(dimension=4, version="v1")
+    graph = InMemoryGraphStore()
+    event = EventEnvelope(
+        event_type="document.chunked",
+        aggregate_version=version.version,
+        tenant_id="default",
+        aggregate_id=document.document_id,
+        trace_id=new_id(),
+        payload_summary={
+            "version_id": version.version_id,
+            "version": version.version,
+            "chunk_count": 1,
+        },
+    )
+    vector_handler = VectorIndexEventHandler(
+        repository=repository,
+        embedding=provider,
+        vector_store=vector,
+        timeout_seconds=1,
+    )
+    graph_handler = GraphIndexEventHandler(
+        repository=repository,
+        extractor=provider,
+        graph_store=graph,
+        timeout_seconds=1,
+    )
+
+    await vector_handler(event)
+    await vector_handler(event)
+    await graph_handler(event)
+    await graph_handler(event)
+
+    assert await vector.list_ids("default") == {chunk.chunk_id}
+    assert await graph.list_chunk_ids("default") == {chunk.chunk_id}
+    stored = (await repository.list_chunks_for_version("default", version.version_id))[0]
+    assert stored.vector_status.value == "succeeded"
+    assert stored.graph_status.value == "succeeded"
+
+    stale = event.model_copy(update={"aggregate_version": 2})
+    with pytest.raises(Exception, match="版本"):
+        await vector_handler(stale)
+
+
+@pytest.mark.asyncio
+async def test_rebuild_inventory_uses_only_mysql_active_versions(database: Database) -> None:
+    repository = SQLKnowledgeRepository(database)
+    document, version, _, chunk = await create_knowledge(repository)
+
+    events, expected_ids = await _active_events(repository, "default")
+
+    assert expected_ids == {chunk.chunk_id}
+    assert len(events) == 1
+    assert events[0].aggregate_id == document.document_id
+    assert events[0].aggregate_version == version.version
+    assert events[0].payload_summary["version_id"] == version.version_id
 
 
 @pytest.mark.asyncio

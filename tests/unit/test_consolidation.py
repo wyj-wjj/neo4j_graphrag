@@ -116,6 +116,17 @@ def test_equal_unresolvable_conflict_requires_clarification() -> None:
     assert result.citations == ()
 
 
+def test_complementary_order_and_logistics_are_combined_in_stable_order() -> None:
+    logistics = outcome(AgentIntent.LOGISTICS, "物流状态", updated_offset=None)
+    order = outcome(AgentIntent.ORDER, "订单状态", updated_offset=None)
+
+    result = DeterministicResultConsolidator().consolidate_complementary([logistics, order])
+
+    assert result.answer == "订单状态\n物流状态"
+    assert result.intents == (AgentIntent.ORDER, AgentIntent.LOGISTICS)
+    assert result.arbitration_basis == "combined"
+
+
 @pytest.mark.parametrize("count", [0, 3])
 def test_consolidator_enforces_hard_expert_bound(count: int) -> None:
     outcomes = [outcome(AgentIntent.KB, f"答案 {index}") for index in range(count)]

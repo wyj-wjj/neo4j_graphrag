@@ -15,12 +15,19 @@ from graphrag.application.context import (
 )
 from graphrag.application.knowledge_quality import KnowledgeQualityService
 from graphrag.application.memory_governance import LongTermMemoryService
+from graphrag.application.outbox import OutboxRelay
 from graphrag.application.prompts import PromptRegistry
 from graphrag.application.safety import RuleBasedSafety
 from graphrag.application.sessions import InMemorySessionService
-from graphrag.config import AppEnvironment, Settings
+from graphrag.config import (
+    AppEnvironment,
+    BusinessAdapterMode,
+    ObjectStoreBackend,
+    Settings,
+)
 from graphrag.domain.ports import (
     AuditPort,
+    BusinessServicesPort,
     ChatModelPort,
     CheckpointStorePort,
     EmbeddingPort,
@@ -29,6 +36,7 @@ from graphrag.domain.ports import (
     GraphStorePort,
     KnowledgeRepositoryPort,
     LongTermMemoryPort,
+    ObjectStorePort,
     OCRPort,
     RerankerPort,
     RouterPort,
@@ -37,8 +45,10 @@ from graphrag.domain.ports import (
     TracePort,
     VectorStorePort,
 )
+from graphrag.infrastructure.business_http_adapter import SyntheticBusinessHTTPAdapter
 from graphrag.infrastructure.database import Base, Database, SQLKnowledgeRepository
 from graphrag.infrastructure.fakes import FakeBusinessServices, FakeModelProvider, FakeOCR
+from graphrag.infrastructure.kafka_adapter import KafkaEventPublisher
 from graphrag.infrastructure.memory import (
     InMemoryAudit,
     InMemoryCheckpointStore,
@@ -57,7 +67,8 @@ from graphrag.infrastructure.model_adapter import (
     OpenAICompatibleProvider,
 )
 from graphrag.infrastructure.neo4j_adapter import Neo4jGraphStore
-from graphrag.infrastructure.object_store import LocalObjectStore
+from graphrag.infrastructure.object_store import LocalObjectStore, S3ObjectStore
+from graphrag.infrastructure.outbox import SQLOutboxStore
 from graphrag.infrastructure.redis_adapter import RedisAdapter
 from graphrag.infrastructure.sql_services import (
     SQLAudit,
@@ -95,6 +106,8 @@ class Runtime:
     memories: LongTermMemoryService
     knowledge_quality: KnowledgeQualityService
     safety: SafetyPort
+    business: BusinessServicesPort
+    object_store: ObjectStorePort
     ingestion: IngestionCoordinator
     worker: IngestionWorker
     retrieval: GraphRAGPipeline
@@ -102,6 +115,8 @@ class Runtime:
     tools: ToolRegistry
     database: Database | None = None
     redis: RedisAdapter | None = None
+    kafka: KafkaEventPublisher | None = None
+    outbox_relay: OutboxRelay | None = None
     closeables: list[Any] = field(default_factory=list)
     approval_callbacks: set[str] = field(default_factory=set)
     langgraph_checkpointer: Any = None
@@ -119,8 +134,12 @@ class Runtime:
         if setup is not None:
             await setup()
         await self.worker.start()
+        if self.outbox_relay is not None:
+            await self.outbox_relay.start()
 
     async def close(self) -> None:
+        if self.outbox_relay is not None:
+            await self.outbox_relay.stop()
         await self.worker.stop()
         exit_checkpointer = getattr(self.langgraph_checkpointer, "__aexit__", None)
         if exit_checkpointer is not None:
@@ -132,10 +151,13 @@ class Runtime:
 
     async def readiness(self) -> dict[str, dict[str, Any]]:
         if self.settings.use_fake_external_clients:
-            return {
+            fake_checks = {
                 name: {"ready": True, "mode": "fake"}
                 for name in ("mysql", "redis", "milvus", "neo4j", "model")
             }
+            fake_checks["object_store"] = await self._object_store_health()
+            fake_checks["business"] = await self._business_health()
+            return fake_checks
         checks: dict[str, dict[str, Any]] = {}
         checks["mysql"] = await self._health_call(
             self.database.health if self.database is not None else None
@@ -149,7 +171,25 @@ class Runtime:
             "ready": self.settings.llm_api_key is not None,
             "mode": "configured",
         }
+        if self.settings.kafka_enabled:
+            checks["kafka"] = await self._health_call(
+                self.kafka.health if self.kafka is not None else None
+            )
+        checks["object_store"] = await self._object_store_health()
+        checks["business"] = await self._business_health()
         return checks
+
+    async def _object_store_health(self) -> dict[str, Any]:
+        health = getattr(self.object_store, "health", None)
+        if health is None:
+            return {"ready": True, "mode": "local"}
+        return await self._health_call(health)
+
+    async def _business_health(self) -> dict[str, Any]:
+        health = getattr(self.business, "health", None)
+        if health is None:
+            return {"ready": True, "mode": "fake"}
+        return await self._health_call(health)
 
     @staticmethod
     async def _health_call(operation: Any) -> dict[str, Any]:
@@ -167,6 +207,8 @@ def build_runtime(settings: Settings) -> Runtime:
 
     database: Database | None = None
     redis: RedisAdapter | None = None
+    kafka: KafkaEventPublisher | None = None
+    outbox_relay: OutboxRelay | None = None
     closeables: list[Any] = []
     ocr: OCRPort
     trace: TracePort = NoopTrace()
@@ -279,7 +321,67 @@ def build_runtime(settings: Settings) -> Runtime:
         )
         closeables.extend([rerank_client, ocr, model, vector_store, graph_store, redis, database])
 
-    object_store = LocalObjectStore(settings.upload_dir)
+    if settings.kafka_enabled:
+        producer_config: dict[str, object] = {
+            "bootstrap.servers": settings.kafka_bootstrap_servers,
+            "client.id": settings.kafka_client_id,
+            "security.protocol": settings.kafka_security_protocol.value,
+            "enable.idempotence": True,
+            "acks": "all",
+            "compression.type": "zstd",
+            "max.in.flight.requests.per.connection": 5,
+        }
+        if settings.kafka_sasl_username and settings.kafka_sasl_password:
+            producer_config.update(
+                {
+                    "sasl.mechanism": settings.kafka_sasl_mechanism,
+                    "sasl.username": settings.kafka_sasl_username,
+                    "sasl.password": settings.kafka_sasl_password.get_secret_value(),
+                }
+            )
+        kafka = KafkaEventPublisher(
+            producer_config,
+            knowledge_topic=settings.kafka_knowledge_topic,
+            action_topic=settings.kafka_action_topic,
+            publish_timeout_seconds=settings.kafka_publish_timeout_seconds,
+        )
+        closeables.append(kafka)
+        if settings.outbox_relay_enabled:
+            if database is None:
+                raise RuntimeError("Outbox Relay requires a SQL database")
+            outbox_relay = OutboxRelay(
+                store=SQLOutboxStore(database),
+                publisher=kafka,
+                batch_size=settings.outbox_batch_size,
+                lease_seconds=settings.outbox_lease_seconds,
+                poll_interval_seconds=settings.outbox_poll_interval_seconds,
+                retry_base_seconds=settings.outbox_retry_base_seconds,
+                retry_max_seconds=settings.outbox_retry_max_seconds,
+            )
+
+    object_store: ObjectStorePort
+    if settings.object_store_backend is ObjectStoreBackend.S3:
+        object_store = S3ObjectStore(
+            bucket=settings.s3_bucket,
+            region=settings.s3_region,
+            endpoint_url=str(settings.s3_endpoint_url) if settings.s3_endpoint_url else None,
+            access_key_id=settings.s3_access_key_id,
+            secret_access_key=(
+                settings.s3_secret_access_key.get_secret_value()
+                if settings.s3_secret_access_key
+                else None
+            ),
+            session_token=(
+                settings.s3_session_token.get_secret_value() if settings.s3_session_token else None
+            ),
+            force_path_style=settings.s3_force_path_style,
+            verify_tls=settings.s3_verify_tls,
+            sse_algorithm=settings.s3_sse_algorithm,
+            kms_key_id=settings.s3_kms_key_id,
+        )
+        closeables.append(object_store)
+    else:
+        object_store = LocalObjectStore(settings.upload_dir)
     parsers = ParserRegistry(
         max_pages=settings.upload_max_pages,
         ocr=ocr,
@@ -348,7 +450,19 @@ def build_runtime(settings: Settings) -> Runtime:
         context_assembler=context_assembler,
         prompt_registry=prompt_registry,
     )
-    business = FakeBusinessServices(repository)
+    business: BusinessServicesPort
+    if settings.business_adapter_mode is BusinessAdapterMode.SYNTHETIC_HTTP:
+        if settings.synthetic_business_base_url is None:
+            raise RuntimeError("Synthetic business base URL is required")
+        business = SyntheticBusinessHTTPAdapter(
+            base_url=str(settings.synthetic_business_base_url),
+            repository=repository,
+            timeout_seconds=settings.business_timeout_seconds,
+            read_max_attempts=settings.business_read_max_attempts,
+        )
+        closeables.append(business)
+    else:
+        business = FakeBusinessServices(repository)
     tools = build_default_registry(settings.tool_timeout_seconds)
     orchestrator = AgentOrchestrator(
         settings=settings,
@@ -386,6 +500,8 @@ def build_runtime(settings: Settings) -> Runtime:
         memories=memories,
         knowledge_quality=knowledge_quality,
         safety=safety,
+        business=business,
+        object_store=object_store,
         ingestion=ingestion,
         worker=worker,
         retrieval=retrieval,
@@ -393,6 +509,8 @@ def build_runtime(settings: Settings) -> Runtime:
         tools=tools,
         database=database,
         redis=redis,
+        kafka=kafka,
+        outbox_relay=outbox_relay,
         closeables=closeables,
         langgraph_checkpointer=langgraph_checkpointer,
     )

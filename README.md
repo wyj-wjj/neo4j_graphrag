@@ -34,8 +34,9 @@ uv run pytest -q
 ```
 
 相同版本、Profile 与 Seed 会生成逐字节一致的数据及 Manifest。当前实现 `ci-small`、独立 HTTP 业务
-模拟器、正式上传客户端、多格式知识样本和离线事件重放 Oracle；真实知识入库/Anchor Map、Kafka 与大规模
-流式 Profile 仍是后续里程碑。运行方式见 `synthetic-data/docs/runbook.md`。
+模拟器、正式上传客户端、多格式知识样本和离线事件重放 Oracle。生产包已实现 Kafka Outbox/Inbox/DLQ
+核心、S3 Adapter、合成 HTTP Adapter 和只读订单+物流双专家；真实知识入库/Anchor Map、Kafka Broker 与
+大规模真实依赖验收仍是后续门禁。运行方式见 `synthetic-data/docs/runbook.md`。
 
 ## 本地启动
 
@@ -46,7 +47,8 @@ uv run pytest -q
 5. 后端：`uv run uvicorn graphrag.main:app --reload`。
 6. 前端：`pnpm --dir frontend dev`。
 
-完整容器工作台使用 `docker compose --profile app up -d --build --wait`。真实 Adapter 模式需要百炼密钥；
+完整容器工作台使用 `docker compose --profile app up -d --build --wait`；该 Profile 会使用独立 MinIO 保存
+知识原文件，不复用 Milvus 内部 MinIO。真实 Adapter 模式需要百炼密钥；
 staging/prod 还必须配置非对称 JWT/JWKS，配置校验会拒绝 Fake、HS256、SQLite 和 MySQL root 账号。
 
 API 文档位于 `/api/v1/docs`，前端默认位于 `http://127.0.0.1:8080`。
@@ -72,16 +74,19 @@ make acceptance
 - `memory-bank/progress.md`：完成项、验证结果和阻塞项。
 - `memory-bank/phase2-data-spec.md`：合成业务世界、数据产品、规模、安全与验收边界。
 - `memory-bank/phase2-data-implementation-plan.md`：阶段二数据工厂的逐步实施与测试计划。
+- `memory-bank/phase2-implementation-plan.md`：阶段二生产能力的执行顺序、门禁与当前状态。
 - `synthetic-data/README.md`：独立数据工厂、Fixture 与大规模产物的使用说明。
 - `docs/api.md`：端点与调用流程。
 - `docs/operations.md`：迁移、故障恢复、重建与生产检查。
+- `docs/local-deployment-guide.md`：面向首次接触项目操作者的本地完整部署与阶段二验收逐步手册。
 - `evaluation/acceptance-report.md`：阶段一验收结论。
 
 ## 安全边界
 
 - 生产仅接受 JWKS 验证的外部身份；角色和租户不能由请求正文声明。
 - 知识候选在进入模型前必须回 MySQL 做 ACL、状态、版本和有效期复核；依赖故障时拒绝返回。
-- Order、Logistics、Refund 阶段一只有 Fake Adapter；退款只创建幂等草单，没有真实 execute 路径。
+- Order、Logistics、Refund 仍只有进程内 Fake 或明确标记的合成 HTTP Adapter；退款只创建幂等草单，
+  没有真实 execute 路径。staging/prod 会拒绝这些 Adapter。
 - 日志、Trace、Agent Step 和 Tool 审计不记录完整敏感正文。
 - 长期记忆只允许用户显式确认创建，自动写入在阶段 1.5 强制关闭，并提供纠正、禁用与删除接口。
 - Prompt 使用版本化资源和 SHA-256 清单；每个完成 Run 保存 Generation Manifest。

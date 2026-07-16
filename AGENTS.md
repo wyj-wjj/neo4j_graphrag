@@ -25,8 +25,10 @@
 3. `memory-bank/tech-stack.md`
 4. `memory-bank/implementation-plan.md`
 5. `memory-bank/phase1_5-hardening-plan.md`（阶段二前的健壮性加固基线）
-6. `enterprise_multi_agent_architecture.md`
-7. 当前任务涉及目录中的 README、Schema、迁移和测试文件
+6. `memory-bank/phase2-implementation-plan.md`（阶段二生产能力实施顺序与门禁）
+7. `enterprise_multi_agent_architecture.md`
+8. `docs/local-deployment-guide.md`（本地真实依赖、Kafka/Worker 与入口验收操作）
+9. 当前任务涉及目录中的 README、Schema、迁移和测试文件
 
 如文档与代码不一致：
 

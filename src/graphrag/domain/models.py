@@ -90,6 +90,7 @@ class AgentIntent(StrEnum):
     REFUND = "refund"
     ESCALATION = "escalation"
     CLARIFY = "clarify"
+    COMPOUND = "compound"
 
 
 class RouteCandidate(StrictModel):
