@@ -254,21 +254,29 @@ OpenAPI 固化在 `openapi.json`，前端 DTO 由它生成。React 使用路由�
 - 前端：pnpm 冻结安装、ESLint/TypeScript、Vitest、Vite build、Playwright + axe。
 - 真实依赖：Compose 使用 `neo4j:5.26.28-community`，并按 Milvus 2.6.14 官方 Standalone
   组合固定 etcd 3.5.25、MinIO 2024-12-18 和 Woodpecker MQ；Milvus 与 MinIO 通过环境变量注入
-  同一组非默认凭据，执行迁移与 Adapter 集成测试。
+  同一组非默认凭据，执行迁移与 Adapter 集成测试。阶段二 `phase2` Profile 另起隔离的 MinIO 服务和
+  Volume 作为知识原文件对象存储，不复用 Milvus 内部 Bucket；真实集成 Job 增加 S3 保存、读取、租户
+  前缀、幂等删除测试。
 - 镜像：后端与非 root Nginx 多阶段构建，Trivy Action 固定为 `v0.36.0`，阻断已修复的 Critical 漏洞。
 - Secret：gitleaks。
 
-Compose 默认只启动基础依赖；`--profile app` 加入迁移、后端和前端。阶段二 Kafka 不在 Compose 中。
+Compose 默认只启动基础依赖；`--profile app` 加入隔离对象存储、Bucket 引导、迁移、后端和前端。
+`--profile phase2` 加入固定版本的单节点 Kafka KRaft Broker、向量 Worker 和图 Worker。该 Broker 使用本地
+PLAINTEXT、单副本，只用于开发验收，不是生产 Kafka 拓扑或安全配置。
 
 ## 13. 已知限制与阶段二入口
 
 - 当前执行容器没有 Docker CLI；GitHub CI 已通过真实 MySQL、Redis、Milvus、Neo4j 集成、镜像启动和 Trivy 扫描。
 - 当前环境无法下载 Playwright Chromium；GitHub CI 已通过完整工作台 E2E 和逐页 axe 检查。
 - Golden Set 使用确定性合成数据和 Fake 模型；真实百炼只做受控评测，不能把离线延迟当生产指标。
-- 阶段一事件写 Outbox，但没有 Kafka Relay；对象存储仍为本地目录。
-- 没有真实订单、物流、退款、企微、邮件或审批执行 Adapter。
+- Outbox Relay、Kafka Publisher/Consumer、Inbox/DLQ、索引 Handler 与独立 Worker 入口已实现并通过本地契约/SQL 测试；
+  当前环境没有 Broker，真实 Kafka 多实例竞争、重启、Rebalance 与 DLQ 重放仍待自托管 Runner 验证。
+- S3 兼容对象存储已实现；本地 Compose/CI 新增隔离 MinIO，但本窗口无法实际启动 Docker 复验。
+- 合成业务 HTTP Adapter 已实现且强制校验 Fake Envelope；没有真实订单、物流、退款、企微、邮件或审批
+  执行 Adapter。staging/prod 配置会因缺少真实业务契约 Adapter 而 fail-closed。
 - 阶段 1.5 里程碑 A–E 已完成。当前长期记忆只提供显式用户治理，不自动写入或注入 Prompt；真实 Guard、
-  字段级 KMS、长期记忆语义索引、模型 Router 和多专家执行都需要真实数据、隐私策略与评测后再启用。
+  字段级 KMS、长期记忆语义索引和模型 Router 需要真实数据、隐私策略与评测后再启用。仅“订单只读查询 +
+  物流只读查询”的确定性双专家已开放；写意图、第三意图和不明确组合继续澄清或走单一状态机。
 
 完成阶段 1.5 验收后，阶段二应只新增/替换 Adapter 与部署单元：Outbox Relay/Kafka/DLQ、S3、
 真实业务 API、生产审批、多租户配额和生产灾备；不得让 Agent 直接连接这些外部系统。
@@ -330,7 +338,29 @@ Milvus、Neo4j、收费模型或真实业务端点。
   `4bcbc5f6…a61237`）和 `failure-lab` 197,895,810 字节（SHA-256 `877e7b22…b01ffd`），大文件本身仍不进入
   Git 历史。
 
-尚未完成：在真实 MySQL/Milvus/Neo4j 组合复验上传与 Anchor Map；生产 Kafka Relay/消费者/DLQ；
+尚未完成：在真实 MySQL/Milvus/Neo4j 组合复验上传与 Anchor Map；真实 Kafka Broker 下的 Relay/消费者/
+DLQ 修复重放验收；
 `staging-large` 的磁盘型核心事实和物化；真实依赖加载和全链路 GraphRAG 评测。当前事件能力是
-Kafka 无关的离线 Envelope/Inbox/DLQ Oracle，不等于 Kafka 已部署。动态订单、物流和退款事实不得写入
+当前离线 Oracle 与已实现的 Kafka Adapter 都不等于 Kafka 已部署。动态订单、物流和退款事实不得写入
 RAG 或长期记忆。
+
+## 15. 阶段二首批生产能力实现（2026-07-15）
+
+- `EventEnvelope` 区分 Schema `event_version` 与业务顺序 `aggregate_version`。Outbox 增加可用时间、租约、
+  最后错误和 Broker 确认时间；同一租户/聚合只领取最早未发布事件。Kafka Key 固定为
+  `tenant_id:aggregate_id`，Topic 只由受控事件类型映射，Producer 使用幂等和 `acks=all`，只有 delivery
+  acknowledgement 后才完成 Outbox。
+- Inbox 按 `(consumer_name,event_id)` 唯一；同 ID 不同 Hash 拒绝，处理中租约可恢复，已处理重复不产生
+  副作用，较旧 `aggregate_version` 标为 stale。未知 Envelope、未知版本、永久失败和耗尽重试进入 DLQ；
+  原始载荷以受限大小 Base64 保存，DLQ 修复表绑定原始/修复 Hash、操作者、原因、目标版本和审计 ID。
+- Kafka Consumer 禁用自动提交和自动 offset store；processed/duplicate/stale/DLQ 才同步提交 offset，busy/
+  retry 回退到原 offset。Embedding/KG Handler 只从 MySQL 重新读取版本与 child Chunk，验证租户、文档和
+  聚合版本后幂等 upsert Milvus/Neo4j；外部副作用成功但 Inbox 未完成时可安全重投。
+- 对象存储由 `ObjectStoreBackend` 选择 Local 或 S3。S3 Key 固定加租户物理前缀，写入租户与 SHA-256
+  Metadata，读取强制复核，支持 Path Style、TLS、IAM/静态凭据、SSE-S3/KMS 和幂等删除；staging/prod
+  禁止 Local 和关闭 TLS 校验。
+- 合成业务 HTTP Adapter 只在 dev/test 使用 `x-synthetic-*` 身份头，严格校验 Envelope、Trace、租户、
+  用户与响应 Schema；只读可有限重试，写草单不自动重试，草单仍落 MySQL。真实业务契约缺失时
+  staging/prod 明确拒绝启动。
+- `bounded-plan-v1` 首次接入执行链，仅开放订单+物流两个只读专家。Router 必须恰好命中两个意图且两步
+  都是只读；确定性互补收敛固定顺序和最多两个结果。写意图不会进入 Compound。

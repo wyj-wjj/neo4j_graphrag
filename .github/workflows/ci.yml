@@ -66,11 +66,16 @@ jobs:
       NEO4J_PASSWORD: integration-neo4j-password
       MINIO_ROOT_USER: integration-minio
       MINIO_ROOT_PASSWORD: integration-minio-password
+      OBJECT_STORE_ACCESS_KEY: integration-objects
+      OBJECT_STORE_SECRET_KEY: integration-object-password
       TEST_DATABASE_URL: mysql+aiomysql://app_user:integration-app-password@127.0.0.1:3306/enterprise_agent_db
       TEST_REDIS_URL: redis://:integration-redis-password@127.0.0.1:6379/0
       TEST_MILVUS_URI: http://127.0.0.1:19530
       TEST_NEO4J_URI: bolt://127.0.0.1:7687
       TEST_NEO4J_PASSWORD: integration-neo4j-password
+      TEST_S3_ENDPOINT_URL: http://127.0.0.1:9002
+      TEST_S3_ACCESS_KEY_ID: integration-objects
+      TEST_S3_SECRET_ACCESS_KEY: integration-object-password
       RUN_REAL_INTEGRATION: "1"
     steps:
       - uses: actions/checkout@v4
@@ -79,15 +84,15 @@ jobs:
       - run: uv sync --frozen --group dev
       - name: Start real dependencies
         run: |
-          if ! docker compose --profile mysql up -d --wait mysql redis neo4j milvus; then
+          if ! docker compose --profile mysql --profile phase2 up -d --wait mysql redis neo4j milvus object-store; then
             docker compose --profile mysql ps --all
-            docker compose --profile mysql logs --no-color --tail=200 milvus etcd minio
+            docker compose --profile mysql --profile phase2 logs --no-color --tail=200 milvus etcd minio object-store
             exit 1
           fi
       - run: DATABASE_URL="$TEST_DATABASE_URL" uv run alembic upgrade head
       - run: uv run pytest -q tests/integration/test_real_adapters.py
       - if: always()
-        run: docker compose --profile mysql down -v
+        run: docker compose --profile mysql --profile phase2 down -v
 
   images:
     runs-on: ubuntu-latest

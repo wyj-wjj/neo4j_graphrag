@@ -129,6 +129,15 @@ class MilvusVectorStore:
             filter=f"tenant_id == {json.dumps(tenant_id)} and chunk_id in [{safe_ids}]",
         )
 
+    async def delete_tenant(self, tenant_id: str) -> None:
+        """Delete only one tenant's rebuildable vectors during an explicit rebuild."""
+
+        await self._call(
+            self.client.delete,
+            collection_name=self.collection,
+            filter=f"tenant_id == {json.dumps(tenant_id)}",
+        )
+
     async def list_ids(self, tenant_id: str) -> set[str]:
         rows = await self._call(
             self.client.query,

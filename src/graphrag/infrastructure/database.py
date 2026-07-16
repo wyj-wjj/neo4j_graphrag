@@ -21,6 +21,7 @@ from sqlalchemy import (
     or_,
     select,
 )
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -153,6 +154,7 @@ class OutboxEventORM(Base):
     event_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     event_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    aggregate_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     aggregate_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -160,6 +162,81 @@ class OutboxEventORM(Base):
     payload_summary: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now, index=True
+    )
+    lease_owner: Mapped[str | None] = mapped_column(String(128), index=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    last_error_code: Mapped[str | None] = mapped_column(String(128))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class InboxEventORM(Base):
+    __tablename__ = "inbox_events"
+    __table_args__ = (
+        UniqueConstraint("consumer_name", "event_id", name="uq_inbox_consumer_event"),
+    )
+    inbox_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    consumer_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    event_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    event_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    aggregate_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    aggregate_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lease_owner: Mapped[str | None] = mapped_column(String(128), index=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    last_error_code: Mapped[str | None] = mapped_column(String(128))
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class DeadLetterEventORM(Base):
+    __tablename__ = "dead_letter_events"
+    __table_args__ = (
+        UniqueConstraint("consumer_name", "payload_hash", name="uq_dlq_consumer_payload"),
+    )
+    dlq_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    consumer_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    event_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    event_type: Mapped[str | None] = mapped_column(String(100), index=True)
+    event_version: Mapped[int | None] = mapped_column(Integer)
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    raw_payload_b64: Mapped[str] = mapped_column(Text().with_variant(MEDIUMTEXT(), "mysql"))
+    failure_kind: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    error_code: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    replay_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DLQRepairORM(Base):
+    __tablename__ = "dlq_repairs"
+    __table_args__ = (
+        UniqueConstraint("dlq_id", "repaired_payload_hash", name="uq_dlq_repair_payload"),
+    )
+    repair_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    dlq_id: Mapped[str] = mapped_column(
+        ForeignKey("dead_letter_events.dlq_id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    original_payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    repaired_payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    repaired_payload_b64: Mapped[str] = mapped_column(
+        Text().with_variant(MEDIUMTEXT(), "mysql"), nullable=False
+    )
+    operator_user_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    target_event_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    replay_event_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    replay_audit_id: Mapped[str] = mapped_column(String(36), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class ActionDraftORM(Base):

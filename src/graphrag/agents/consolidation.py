@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from graphrag.domain.errors import ValidationError
-from graphrag.domain.models import AgentOutcome, Citation, ConsolidatedOutcome
+from graphrag.domain.models import AgentIntent, AgentOutcome, Citation, ConsolidatedOutcome
 
 
 class DeterministicResultConsolidator:
@@ -52,6 +52,23 @@ class DeterministicResultConsolidator:
             intents=tuple(dict.fromkeys(item.intent for item in outcomes)),
             citations=selected_citations,
             arbitration_basis=basis,
+        )
+
+    def consolidate_complementary(self, outcomes: Sequence[AgentOutcome]) -> ConsolidatedOutcome:
+        if len(outcomes) != 2 or {item.intent for item in outcomes} != {
+            AgentIntent.ORDER,
+            AgentIntent.LOGISTICS,
+        }:
+            raise ValidationError("互补收敛仅允许订单查询与物流查询两个只读专家")
+        ordered = sorted(
+            outcomes,
+            key=lambda item: (item.intent is not AgentIntent.ORDER, item.intent.value),
+        )
+        return ConsolidatedOutcome(
+            answer="\n".join(item.answer for item in ordered),
+            intents=tuple(item.intent for item in ordered),
+            citations=self._deduplicate_citations(ordered),
+            arbitration_basis="combined",
         )
 
     @staticmethod

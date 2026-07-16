@@ -139,6 +139,15 @@ class Neo4jGraphStore:
                 version_id=version_id,
             )
 
+    async def delete_tenant(self, tenant_id: str) -> None:
+        """Delete only one tenant's rebuildable graph during an explicit rebuild."""
+
+        async with self.driver.session(database=self.database) as session:
+            await session.run(
+                "MATCH (n {tenant_id: $tenant_id}) DETACH DELETE n",
+                tenant_id=tenant_id,
+            )
+
     async def list_chunk_ids(self, tenant_id: str) -> set[str]:
         async with self.driver.session(database=self.database) as session:
             result = await session.run(

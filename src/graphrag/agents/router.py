@@ -71,8 +71,7 @@ class DeterministicRouter:
             AgentPlanStep(
                 ordinal=index,
                 intent=intent,
-                read_only=intent
-                not in {AgentIntent.REFUND, AgentIntent.ESCALATION, AgentIntent.ORDER},
+                read_only=self._is_read_only(query, intent),
             )
             for index, intent in enumerate(matched, start=1)
         )
@@ -85,6 +84,16 @@ class DeterministicRouter:
     @staticmethod
     def _matched(query: str) -> tuple[AgentIntent, ...]:
         return tuple(intent for intent, pattern in _RULES if pattern.search(query))
+
+    @staticmethod
+    def _is_read_only(query: str, intent: AgentIntent) -> bool:
+        if intent in {AgentIntent.FAQ, AgentIntent.KB}:
+            return True
+        if intent is AgentIntent.ORDER:
+            return re.search(r"改地址|修改地址|变更地址", query, re.I) is None
+        if intent is AgentIntent.LOGISTICS:
+            return re.search(r"催单|催促|加急", query, re.I) is None
+        return False
 
 
 def route(query: str, *, threshold: float) -> RouteDecision:

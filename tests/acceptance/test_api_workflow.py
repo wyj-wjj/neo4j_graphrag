@@ -176,6 +176,40 @@ def test_all_agent_paths_and_fake_boundaries(
 
 
 @pytest.mark.acceptance
+def test_bounded_read_only_order_logistics_compound_plan(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    response = client.post(
+        "/api/v1/chat",
+        headers=admin_headers,
+        json={"query": "查询订单 DEMO-1001 和物流到哪"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["intent"] == "compound"
+    assert payload["source"] == "fake"
+    assert "订单 DEMO-1001 状态" in payload["answer"]
+    assert "物流状态" in payload["answer"]
+
+
+@pytest.mark.acceptance
+def test_write_intent_never_enters_compound_plan(
+    client: TestClient, admin_headers: dict[str, str]
+) -> None:
+    response = client.post(
+        "/api/v1/chat",
+        headers=admin_headers,
+        json={"query": "把订单 DEMO-1001 改地址并查询物流到哪"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["intent"] != "compound"
+    assert "订单 DEMO-1001 状态" not in payload["answer"]
+
+
+@pytest.mark.acceptance
 def test_sse_order_ids_and_single_end(client: TestClient, admin_headers: dict[str, str]) -> None:
     response = client.post(
         "/api/v1/chat/stream",

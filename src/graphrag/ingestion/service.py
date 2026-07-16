@@ -79,6 +79,7 @@ class IngestionCoordinator:
         )
         event = EventEnvelope(
             event_type="document.received",
+            aggregate_version=version.version,
             tenant_id=identity.tenant_id,
             aggregate_id=document.document_id,
             trace_id=trace_id,
@@ -125,6 +126,7 @@ class IngestionCoordinator:
         )
         event = EventEnvelope(
             event_type="document.version.received",
+            aggregate_version=version.version,
             tenant_id=identity.tenant_id,
             aggregate_id=document_id,
             trace_id=trace_id,
@@ -207,10 +209,15 @@ class IngestionCoordinator:
                 )
             event = EventEnvelope(
                 event_type="document.chunked",
+                aggregate_version=version.version,
                 tenant_id=task.tenant_id,
                 aggregate_id=task.document_id,
                 trace_id=trace_id,
-                payload_summary={"version_id": version.version_id, "chunk_count": len(chunks)},
+                payload_summary={
+                    "version_id": version.version_id,
+                    "version": version.version,
+                    "chunk_count": len(chunks),
+                },
             )
             await self.repository.save_chunks(chunks, event)
             await self.publisher.publish(event)
@@ -251,10 +258,16 @@ class IngestionCoordinator:
                 event_type="document.indexed"
                 if final.status == IngestionStatus.COMPLETED
                 else "document.failed",
+                aggregate_version=version.version,
                 tenant_id=task.tenant_id,
                 aggregate_id=task.document_id,
                 trace_id=trace_id,
-                payload_summary={"task_id": task.task_id, "status": final.status.value},
+                payload_summary={
+                    "task_id": task.task_id,
+                    "version_id": version.version_id,
+                    "version": version.version,
+                    "status": final.status.value,
+                },
             )
         )
         return final
@@ -262,6 +275,12 @@ class IngestionCoordinator:
     async def _resume_indexes(
         self, task: IngestionTask, chunks: Sequence[ChunkRecord], *, trace_id: str
     ) -> IngestionTask:
+        version = (
+            await self.repository.get_version(task.tenant_id, task.version_id)
+            if task.version_id is not None
+            else None
+        )
+        aggregate_version = version.version if version is not None else 1
         indexable = [item for item in chunks if item.chunk_kind == "child"]
         vector_needed = any(item.vector_status != IndexStatus.SUCCEEDED for item in indexable)
         graph_needed = any(item.graph_status != IndexStatus.SUCCEEDED for item in indexable)
@@ -295,10 +314,16 @@ class IngestionCoordinator:
         await self.publisher.publish(
             EventEnvelope(
                 event_type="document.reindexed",
+                aggregate_version=aggregate_version,
                 tenant_id=task.tenant_id,
                 aggregate_id=task.document_id,
                 trace_id=trace_id,
-                payload_summary={"task_id": task.task_id, "status": final.status.value},
+                payload_summary={
+                    "task_id": task.task_id,
+                    "version_id": task.version_id,
+                    "version": aggregate_version,
+                    "status": final.status.value,
+                },
             )
         )
         return final
